@@ -6,6 +6,7 @@
 <title>Dashboard C-Level — Ganga Home v10</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#fff;--bg2:#f7f8fa;--bg3:#f0f2f5;--bg4:#e4e7ec;
@@ -290,9 +291,9 @@ var compD = null;
 var enviosData = null, marketingData = null, costosData = null, mercadoData = null, facturacionData = null, fullData = null;
 
 var PAGES = {
-  resumen:    { title:'Resumen Ejecutivo',       sub:'Indicadores clave del período · Mercado Libre',  tabs:['Métricas','Top Productos','Mapa de calor'] },
+  resumen:    { title:'Resumen Ejecutivo',       sub:'KPIs · Evolución · Mercado Libre',  tabs:['KPIs','Evolución diaria','Por hora','Por día semana','Visitas por hora'] },
   ventas:     { title:'Evolución de Ventas',     sub:'Facturación y unidades por día',                 tabs:['Gráfico diario','Ranking por variante'] },
-  productos:  { title:'Productos & Stock',       sub:'Catálogo completo con variantes',                tabs:['Todos los productos','Por categoría'] },
+  productos:  { title:'Productos & Stock',       sub:'Catálogo completo con variantes',                tabs:['Productos','Por categoría'] },
   alertas:    { title:'Alertas de Stock',        sub:'Productos críticos con reposición urgente',      tabs:['Críticos','Stock bajo','Todo el inventario'] },
   envios:     { title:'Envíos',                  sub:'Estado de envíos en tiempo real',               tabs:['Estado general','Demorados'] },
   horario:    { title:'Análisis Horario',        sub:'Patrones de venta por hora, día y semana',      tabs:['Por hora','Por día de semana','Por semana'] },
@@ -303,7 +304,7 @@ var PAGES = {
   costos:     { title:'Costos & Rentabilidad',   sub:'Distribución de costos y margen estimado',      tabs:['Resumen de costos'] },
   facturacion:{ title:'Facturación',             sub:'Facturas y pagos de Mercado Libre',             tabs:['Historial de facturas'] },
   full:       { title:'Stock Full',              sub:'Inventario y métricas de Stock Full',           tabs:['Estado de Full'] },
-  reputacion: { title:'Reputación',              sub:'Estado de la cuenta en Mercado Libre',          tabs:['Estado de cuenta'] },
+  reputacion: { title:'Reputación',              sub:'Estado de la cuenta en Mercado Libre',          tabs:['Estado de cuenta','Canceladas & Devueltas'] },
 };
 
 // ── SUPABASE HELPERS ──────────────────────────────────────
@@ -343,13 +344,13 @@ async function loadData() {
 
   try {
     // ── 1. Ventas del período (todas, sin límite) ──────────
-    var vQs = 'select=id,producto_id,producto_titulo,cantidad,total,estado,hora,fecha,costo_envio,comision_ml';
+    var vQs = 'select=id,producto_id,producto_titulo,cantidad,total,estado,hora,fecha,costo_envio,comision_ml,buyer_id,motivo_cancelacion,tipo_cancelacion';
     if (desde) vQs += '&fecha=gte.' + desde;
     if (hasta) vQs += '&fecha=lte.' + hasta;
     var ventas = await sbAll('/ventas', vQs);
 
     // ── 2. Productos (todos) ───────────────────────────────
-    var productos = await sbAll('/productos', 'select=id,titulo,precio,precio_original,stock,vendidos,estado,categoria_id,permalink,visitas_30d');
+    var productos = await sbAll('/productos', 'select=id,titulo,precio,precio_original,stock,vendidos,estado,categoria_id,permalink,visitas_30d,health,listing_type_id,condition');
 
     // ── 3. Variaciones — no disponibles via anon key aún ──
     var variaciones = [];
@@ -434,7 +435,17 @@ async function loadData() {
     // Cancelaciones para reputación
     var cancRate = totalOrds > 0 ? canceladas.length / (totalOrds + canceladas.length) : 0;
 
-    // ── BUILD D ────────────────────────────────────────────
+    // Tasa de recompra
+    var buyerMap={};validas.forEach(function(v){if(v.buyer_id)buyerMap[v.buyer_id]=(buyerMap[v.buyer_id]||0)+1;});
+    var totalBuyers=Object.keys(buyerMap).length,repurchaseBuyers=Object.values(buyerMap).filter(function(c){return c>1;}).length;
+    var tasaRecompra=totalBuyers>0?repurchaseBuyers/totalBuyers:0;
+    var ventasPorHora={},facturacionPorHora={},unidadesPorHora={};
+    for(var h=0;h<24;h++){ventasPorHora[h]=0;facturacionPorHora[h]=0;unidadesPorHora[h]=0;}
+    validas.forEach(function(v){var hr=v.hora!=null?parseInt(v.hora):-1;if(hr>=0&&hr<24){ventasPorHora[hr]++;facturacionPorHora[hr]+=parseFloat(v.total)||0;unidadesPorHora[hr]+=parseInt(v.cantidad)||0;}});
+    var ventasPorSemana={0:0,1:0,2:0,3:0,4:0,5:0,6:0},facturacionPorSemana={0:0,1:0,2:0,3:0,4:0,5:0,6:0},unidadesPorSemana={0:0,1:0,2:0,3:0,4:0,5:0,6:0};
+    validas.forEach(function(v){if(v.fecha){var dow=new Date(v.fecha+'T12:00:00').getDay();ventasPorSemana[dow]++;facturacionPorSemana[dow]+=parseFloat(v.total)||0;unidadesPorSemana[dow]+=parseInt(v.cantidad)||0;}});
+    var canceladasDetalle=canceladas.map(function(v){return{id:v.id,fecha:v.fecha,producto:v.producto_titulo||'—',motivo:v.motivo_cancelacion||v.tipo_cancelacion||'—',total:parseFloat(v.total)||0};});
+        // ── BUILD D ────────────────────────────────────────────
     D = {
       metricas: {
         facturacion:    totalFac,
@@ -470,13 +481,15 @@ async function loadData() {
           diasStock:    ds,
           promDiario:   pDi,
           sku:          p.id,
-          permalink:    p.permalink || '',
-          variaciones:  varPorProd[p.id] || []
+          permalink:p.permalink||'',
+          variaciones:varPorProd[p.id]||[],
+          health:p.health||null,listing_type:p.listing_type_id||'',estadoML:p.estado||'active',precioOriginal:parseFloat(p.precio_original)||0
         };
       }),
       ventasPorDia: ventasPorDia,
       periodo:  { desde: pDesde, hasta: pHasta, dias: pDias },
       muestreo: 'Datos exactos de Supabase · ' + ventas.length.toLocaleString('es-AR') + ' registros',
+      tasaRecompra:tasaRecompra,totalBuyers:totalBuyers,repurchaseBuyers:repurchaseBuyers,ventasPorHora:ventasPorHora,facturacionPorHora:facturacionPorHora,unidadesPorHora:unidadesPorHora,ventasPorSemana:ventasPorSemana,facturacionPorSemana:facturacionPorSemana,unidadesPorSemana:unidadesPorSemana,canceladasDetalle:canceladasDetalle,
       syncedAt: new Date().toISOString()
     };
 
@@ -668,7 +681,7 @@ function showSub(i,btn) {
 function renderPage() {
   if(!D)return;
   var map={
-    resumen:[rResumen,rTopProd,rHeatmap],
+    resumen:[rResumen,rEvolDia,rEvolHora,rEvolSemana,rVisitasHora],
     ventas:[rVentasDia,rVentasVariante],
     productos:[rProductos,rPorCat],
     alertas:[rCriticos,rBajo,rInventario],
@@ -681,7 +694,7 @@ function renderPage() {
     costos:[rCostos],
     facturacion:[rFacturacion],
     full:[rFull],
-    reputacion:[rReputacion],
+    reputacion:[rReputacion,rCanceladasDevueltas],
   };
   var fns=map[curNav];
   if(fns&&fns[curSub])fns[curSub]();
@@ -743,6 +756,7 @@ function rResumen() {
     (isFilt?'<div class="info-banner">📊 Mostrando <strong>'+FILTERED.length+' de '+ALL.length+'</strong> productos. Métricas globales corresponden al período completo.</div>':'')+
     '<div class="kg">'+
     kc('Ventas brutas',fmtM(m.facturacion),{t:D.muestreo,c:'ne'},'yt')+
+    kc('Tasa de recompra',D.tasaRecompra>0?(D.tasaRecompra*100).toFixed(1)+'%':'—',{t:(D.repurchaseBuyers||0)+' de '+(D.totalBuyers||0)+' compradores volvieron',c:D.tasaRecompra>0.15?'up':'ne'},D.tasaRecompra>0.15?'gt':'')+
     kc('Unidades vendidas',fmt(m.unidades),null,'yt')+
     kc('Cantidad de ventas',fmt(m.ventas),null,'')+
     kc('Conversión',conv,convSub,'')+
@@ -806,6 +820,13 @@ function rHeatmap() {
     [{data:dias.map(function(d){return Math.round(diasData[d]?.facturacion||0);}),backgroundColor:'rgba(200,180,0,.3)',borderColor:'#c8b400',borderWidth:1.5,borderRadius:3}],
     {scales:{x:{grid:{color:'rgba(0,0,0,.04)'},ticks:{color:'#9ca3af',font:{size:8},maxRotation:45}},y:{grid:{color:'rgba(0,0,0,.04)'},ticks:{color:'#9ca3af',font:{size:9},callback:function(v){return v>=1e6?'$'+(v/1e6).toFixed(1)+'M':'$'+Math.round(v/1000)+'k';}}}}});
 }
+
+// tripleMetricChart helper
+function tripleMetricChart(id,lbl,vnt,fac,und){var el=document.getElementById(id);if(!el)return;if(charts[id])charts[id].destroy();charts[id]=new Chart(el,{type:'bar',data:{labels:lbl,datasets:[{label:'Ventas ($)',data:fac,backgroundColor:'rgba(200,180,0,.7)',borderColor:'#c8b400',borderWidth:1.5,borderRadius:3,yAxisID:'yF'},{label:'Cant.',data:vnt,backgroundColor:'rgba(37,99,235,.4)',borderColor:'#2563eb',borderWidth:1.5,borderRadius:3,yAxisID:'yC'},{label:'Uds.',data:und,backgroundColor:'rgba(22,163,74,.4)',borderColor:'#16a34a',borderWidth:1.5,borderRadius:3,yAxisID:'yC'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}},scales:{yF:{type:'linear',position:'left',ticks:{color:'#9ca3af',font:{size:8},callback:function(v){return v>=1e6?'$'+(v/1e6).toFixed(1)+'M':'$'+Math.round(v/1000)+'k';}}},yC:{type:'linear',position:'right',grid:{display:false},ticks:{color:'#9ca3af',font:{size:8}}},x:{ticks:{color:'#9ca3af',font:{size:8},maxRotation:45}}}}});}
+function rEvolDia(){var dd=D.ventasPorDia||{},dias=Object.keys(dd).sort();if(!dias.length){document.getElementById('page').innerHTML='<div class="empty">Sin datos</div>';return;}document.getElementById('page').innerHTML='<div class="kg3">'+kc('Ventas brutas',fmtM(dias.reduce(function(s,d){return s+(dd[d].facturacion||0);},0)),{t:'período',c:'ne'},'yt')+kc('Cant. ventas',fmt(dias.reduce(function(s,d){return s+(dd[d].ventas||0);},0)),null,'')+kc('Unidades',fmt(dias.reduce(function(s,d){return s+(dd[d].unidades||0);},0)),null,'')+'</div>'+panel('Evolución diaria','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h260"><canvas id="ch-evol-dia"></canvas></div>');tripleMetricChart('ch-evol-dia',dias.map(function(d){return d.slice(5);}),dias.map(function(d){return dd[d].ventas||0;}),dias.map(function(d){return Math.round(dd[d].facturacion||0);}),dias.map(function(d){return dd[d].unidades||0;}));}
+function rEvolHora(){var vh=D.ventasPorHora||{},fh=D.facturacionPorHora||{},uh=D.unidadesPorHora||{},lbl=[],vA=[],fA=[],uA=[];for(var h=0;h<24;h++){lbl.push(h+'h');vA.push(vh[h]||0);fA.push(Math.round(fh[h]||0));uA.push(uh[h]||0);}var topH=vA.indexOf(Math.max.apply(null,vA));document.getElementById('page').innerHTML='<div class="kg3">'+kc('Franja pico',topH+'h–'+(topH+1)+'h',{t:fmt(vA[topH])+' ventas',c:'up'},'yt')+kc('Nocturnas 0–7h',fmt(vA.slice(0,8).reduce(function(s,v){return s+v;},0)),null,'')+kc('Diurnas 8–22h',fmt(vA.slice(8,23).reduce(function(s,v){return s+v;},0)),{t:'hábiles',c:'up'},'gt')+'</div>'+panel('Por hora del día','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h260"><canvas id="ch-evol-hora"></canvas></div>');tripleMetricChart('ch-evol-hora',lbl,vA,fA,uA);}
+function rEvolSemana(){var vs=D.ventasPorSemana||{},fs=D.facturacionPorSemana||{},us=D.unidadesPorSemana||{};var nm=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],vA=nm.map(function(_,i){return vs[i]||0;}),fA=nm.map(function(_,i){return Math.round(fs[i]||0);}),uA=nm.map(function(_,i){return us[i]||0;}),topD=vA.indexOf(Math.max.apply(null,vA));document.getElementById('page').innerHTML='<div class="kg3">'+kc('Mejor día',nm[topD],{t:fmt(vA[topD])+' ventas',c:'up'},'yt')+kc('Fin de semana',fmt((vs[6]||0)+(vs[0]||0)),null,'')+kc('Semana L–V',fmt([1,2,3,4,5].reduce(function(s,i){return s+(vs[i]||0);},0)),null,'')+'</div>'+panel('Por día de semana','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h260"><canvas id="ch-evol-sem"></canvas></div>');tripleMetricChart('ch-evol-sem',nm,vA,fA,uA);}
+function rVisitasHora(){var vh=D.ventasPorHora||{},tV=D.metricas.visitas||0,tH=Object.values(vh).reduce(function(s,v){return s+v;},0)||1,lbl=[],vA=[],visA=[];for(var h=0;h<24;h++){lbl.push(h+'h');vA.push(vh[h]||0);visA.push(Math.round(tV*(vh[h]||0)/tH));}document.getElementById('page').innerHTML=panel('Visitas vs ventas por hora','Visitas estimadas proporcionalmente al patrón horario','<div class="info-banner">ℹ Visitas estimadas a partir del total del período.</div><div class="chart-wrap h260"><canvas id="ch-vis-hora"></canvas></div>');setTimeout(function(){var el=document.getElementById('ch-vis-hora');if(!el)return;if(charts['ch-vis-hora'])charts['ch-vis-hora'].destroy();charts['ch-vis-hora']=new Chart(el,{type:'bar',data:{labels:lbl,datasets:[{label:'Visitas (est.)',data:visA,backgroundColor:'rgba(124,58,237,.3)',borderColor:'#7c3aed',borderWidth:1.5,borderRadius:3,yAxisID:'yV'},{label:'Ventas',data:vA,backgroundColor:'rgba(200,180,0,.75)',borderColor:'#c8b400',borderWidth:1.5,borderRadius:3,yAxisID:'yN'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}},scales:{yV:{type:'linear',position:'left',ticks:{color:'#7c3aed',font:{size:8}}},yN:{type:'linear',position:'right',grid:{display:false},ticks:{color:'#c8b400',font:{size:8}}},x:{ticks:{color:'#9ca3af',font:{size:8}}}}}});},60);}
 
 // VENTAS POR DÍA
 function rVentasDia() {
@@ -873,43 +894,31 @@ function rVentasVariante() {
 }
 
 // PRODUCTOS (cambio 2: variantes como filas)
+function buildProdRow(it, i) {
+  var mla=String(it.sku||it.id||'').slice(-12);
+  var sku=(it.variaciones&&it.variaciones.length>0&&it.variaciones[0].sku)?it.variaciones[0].sku:'—';
+  var mlEst=it.estadoML||'active',isAct=mlEst==='active';
+  var estPill=isAct?pill('Activa','g'):pill('Pausada','y');
+  var hlth=it.health!=null?'<span style="font-weight:700;color:'+(it.health>=70?'var(--g)':it.health>=40?'var(--y)':'var(--r)')+'">'+it.health+'%</span>':'<span style="color:var(--txt3)">—</span>';
+  var pOrig=it.precioOriginal||0,pPromo=it.precio||0;
+  var priceTd=pOrig>0&&pOrig>pPromo?'<span style="text-decoration:line-through;color:var(--txt3);font-size:10px">'+fmtP(pOrig)+'</span> <span class="g-txt" style="font-weight:700">'+fmtP(pPromo)+'</span>':fmtP(pPromo);
+  var r='<tr><td style="font-size:10px;color:var(--txt3)">'+mla+'</td><td style="font-size:10px;color:var(--txt3)">'+sku+'</td><td><div class="pname">'+cleanT(it.titulo)+'</div></td><td style="font-size:10px;color:var(--txt2)">—</td><td>'+estPill+'</td><td>'+hlth+'</td><td>'+priceTd+'</td><td class="'+(it.unidsPeriodo>0?'g-txt':'ne')+'" style="font-weight:700">'+fmt(it.unidsPeriodo||0)+'</td><td style="font-weight:700">'+(it.revenue>0?'<span class="g-txt">'+fmtM(it.revenue)+'</span>':'<span style="color:var(--txt3)">—</span>')+'</td></tr>';
+  if(it.variaciones&&it.variaciones.length>0){it.variaciones.forEach(function(v){var lbl=(v.atributos||'Var').replace('Diseño de la tela: ','').replace('Nombre del diseño: ','');r+='<tr class="var-row"><td style="font-size:10px;color:var(--txt3)">'+mla+'</td><td style="font-size:10px;color:var(--txt3)">'+(v.sku||'—')+'</td><td style="padding-left:18px;color:var(--txt3);font-size:11px">↳ '+lbl+'</td><td style="font-size:10px;color:var(--txt2)">'+lbl+'</td><td>'+estPill+'</td><td>'+hlth+'</td><td>'+priceTd+'</td><td style="color:var(--txt3)">—</td><td style="color:var(--txt3)">—</td></tr>';});}
+  return r;
+}
+function toggleResto(n){var r=document.getElementById('prod-resto'),b=document.getElementById('prod-xpnd');if(!r||!b)return;var sh=r.style.display!=='none';r.style.display=sh?'none':'';b.textContent=sh?'▼ Ver '+n+' más...':'▲ Mostrar solo top 10';}
 function rProductos() {
   var data=FILTERED.slice().sort(function(a,b){return b.revenue-a.revenue;});
-  var tFact=data.reduce(function(s,it){return s+(it.facturacion||0);},0);
-  var tUds=data.reduce(function(s,it){return s+(it.unidsPeriodo||0);},0);
-  var tStock=data.reduce(function(s,it){return s+(it.stock||0);},0);
-  var tSin=data.filter(function(it){return !it.stock;}).length;
-
-  var rows='';
-  data.forEach(function(it,i){
-    var sc=it.stock===0?'r-txt':it.stock<10?'y-txt':'g-txt';
-    var ep={critico:['r','Crítico'],bajo:['y','Bajo'],ok:['g','OK']};
-    rows+='<tr><td>'+(i+1)+'</td><td><div class="pname">'+cleanT(it.titulo)+'</div></td>';
-    rows+='<td>'+pill(ep[it.estado][1],ep[it.estado][0])+'</td>';
-    rows+='<td class="'+(it.unidsPeriodo>0?'g-txt':'ne')+'" style="font-size:12px;font-weight:700">'+fmt(it.unidsPeriodo||0)+'</td>';
-    rows+='<td style="font-size:12px;font-weight:700">'+(it.revenue>0?'<span class="g-txt">'+fmtM(it.revenue)+'</span>':'<span style="color:var(--txt3)">—</span>')+'</td>';
-    rows+='<td class="'+sc+'" style="font-size:12px;font-weight:700">'+fmt(it.stock)+'</td>';
-    rows+='<td>'+fmtP(it.precio)+'</td>';
-    rows+='<td><span class="mono">'+it.promDiario.toFixed(2)+'/d</span></td></tr>';
-    // Variantes como filas separadas
-    if(it.variaciones&&it.variaciones.length>0){
-      it.variaciones.forEach(function(v){
-        var lbl=(v.atributos||'Var').replace('Diseño de la tela: ','').replace('Nombre del diseño: ','');
-        var vc=v.stock===0?'r-txt':v.stock<5?'y-txt':'g-txt';
-        rows+='<tr class="var-row"><td></td><td style="padding-left:24px;color:var(--txt3)">↳ '+lbl+'</td><td></td><td>—</td><td>—</td><td class="'+vc+'" style="font-weight:700">'+fmt(v.stock)+'</td><td></td><td></td></tr>';
-      });
-    }
-  });
-
+  var tF=data.reduce(function(s,it){return s+(it.revenue||0);},0),tU=data.reduce(function(s,it){return s+(it.unidsPeriodo||0);},0);
+  var tAct=data.filter(function(it){return (it.estadoML||'active')==='active';}).length;
+  var top10=data.slice(0,10),resto=data.slice(10);
+  var thead='<tr><th style="font-size:10px">MLA</th><th style="font-size:10px">SKU</th><th class="th-l" style="min-width:200px">Título</th><th class="th-l">Variante</th><th>Estado</th><th>Calidad ML</th><th>Precio</th><th>Uds. vendidas</th><th>Facturación</th></tr>';
+  var topRows=top10.map(function(it,i){return buildProdRow(it,i);}).join('');
+  var restoRows=resto.map(function(it,i){return buildProdRow(it,i+10);}).join('');
+  var expandHTML=resto.length?'<div id="prod-resto" style="display:none">'+restoRows+'</div><div class="tfoot"><span>Top 10 de '+data.length+'</span><button class="tbtn" id="prod-xpnd" onclick="toggleResto('+resto.length+')">▼ Ver '+resto.length+' más...</button></div>':'<div class="tfoot"><span>'+data.length+' publicaciones</span></div>';
   document.getElementById('page').innerHTML=
-    '<div class="kg">'+
-    kc('Publicaciones',fmt(data.length),null,'yt')+
-    kc('Facturación',fmtM(tFact),null,'gt')+
-    kc('Uds. vendidas',fmt(tUds),null,'')+
-    kc('Sin stock',fmt(tSin),{t:tSin>0?'Requieren reposición':'✓ Todos con stock',c:tSin>0?'dn':'up'},tSin>0?'rt':'')+
-    '</div>'+
-    panel('Catálogo completo',data.length+' publicaciones · variantes como filas',
-      '<div class="tw"><table class="tbl"><thead><tr><th>#</th><th class="th-l" style="min-width:220px">Nombre / Variante</th><th class="th-l">Estado</th><th>Uds. vendidas</th><th>Facturación</th><th>Stock</th><th>Precio</th><th>Ritmo</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="tfoot"><span>'+data.length+' productos</span></div>');
+    '<div class="kg4">'+kc('Publicaciones',fmt(data.length),null,'yt')+kc('Activas',fmt(tAct),{t:'de '+fmt(data.length),c:'up'},'gt')+kc('Facturación',fmtM(tF),null,'gt')+kc('Uds. vendidas',fmt(tU),null,'')+'</div>'+
+    panel('Catálogo','Top 10 · expandible','<div class="tw"><table class="tbl"><thead>'+thead+'</thead><tbody>'+topRows+'</tbody></table>'+expandHTML+'</div>');
 }
 
 // POR CATEGORÍA
@@ -1286,81 +1295,75 @@ function rFacturacion() {
 }
 
 // STOCK FULL (cambio 11)
-function rFull() {
+function spaceCard(lbl,used,total){var rem=Math.max(0,(total||0)-(used||0)),pct=total>0?Math.round(used/total*100):0,col=pct>85?'var(--r)':pct>65?'var(--y)':'var(--b)';return '<div class="panel" style="flex:1;min-width:160px"><div class="ph"><div><div class="pt">'+lbl+'</div></div></div><div style="padding:10px 14px"><div style="font-size:22px;font-weight:800;color:'+col+'">'+fmt(used||0)+'</div><div style="font-size:10px;color:var(--txt3);margin-bottom:8px">unidades usadas</div><div class="btrk" style="height:8px;border-radius:4px;margin-bottom:5px"><div class="bfil" style="width:'+pct+'%;height:8px;border-radius:4px;background:'+col+'"></div></div><div style="display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--txt3)">Usado: <strong>'+pct+'%</strong></span><span style="color:'+col+'">Libre: <strong>'+fmt(rem)+'</strong> ('+(100-pct)+'%)</span></div><div style="font-size:9px;color:var(--txt3);margin-top:4px">Capacidad: '+fmt(total||0)+'</div></div></div>';}
+function downloadFullExcel(){var items=FILTERED;if(!items.length){alert('Sin datos');return;}if(typeof XLSX==='undefined'){alert('Error: librería Excel no disponible');return;}var rows=[['MLA','SKU','Título','Variante','Ventas 30d','Ventas 7d','Stock apto','En camino','Ritmo /día','Estado']];items.forEach(function(it){var mla=String(it.sku||it.id||''),sku=(it.variaciones&&it.variaciones.length>0&&it.variaciones[0].sku)?it.variaciones[0].sku:'—';rows.push([mla,sku,cleanT(it.titulo),'—',it.unidsPeriodo||0,it.uds7||0,it.stock||0,0,it.promDiario?it.promDiario.toFixed(2):'0.00',it.stock===0?'Sin stock':it.stock<10?'Crítico':'Suficiente']);if(it.variaciones&&it.variaciones.length>0){it.variaciones.forEach(function(v){var lbl=(v.atributos||'Var').replace('Diseño de la tela: ','').replace('Nombre del diseño: ','');rows.push([mla,v.sku||'—',cleanT(it.titulo),lbl,0,0,v.stock||0,0,it.promDiario?it.promDiario.toFixed(2):'0.00',(v.stock||0)===0?'Sin stock':(v.stock||0)<5?'Crítico':'Suficiente']);});}});var ws=XLSX.utils.aoa_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Stock Full');XLSX.writeFile(wb,'stock-full-ganga-'+new Date().toISOString().slice(0,10)+'.xlsx');}
+function rFull(){
   if(!fullData){document.getElementById('page').innerHTML='<div class="loading-page"><div class="spinner"></div></div>';return;}
-  var d=fullData;
+  var d=fullData,items=FILTERED;
+  var smU=d.small_medium_units||0,smC=d.small_medium_capacity||32000,lgU=d.large_units||0,lgC=d.large_capacity||4000;
+  var tableRows=items.map(function(it){
+    var mla=String(it.sku||it.id||'').slice(-12),sku=(it.variaciones&&it.variaciones.length>0&&it.variaciones[0].sku)?it.variaciones[0].sku:'—';
+    var sc=it.stock===0?'r-txt':it.stock<10?'y-txt':'g-txt',slbl=it.stock===0?pill('Sin stock','r'):it.stock<10?pill('Crítico','y'):pill('Suficiente','g');
+    return '<tr><td style="font-size:10px;color:var(--txt3)">'+mla+'</td><td style="font-size:10px;color:var(--txt3)">'+sku+'</td><td><div class="pname">'+cleanT(it.titulo)+'</div></td><td style="font-size:10px;color:var(--txt2)">—</td><td class="'+(it.unidsPeriodo>0?'g-txt':'ne')+'" style="font-weight:700">'+fmt(it.unidsPeriodo||0)+'</td><td class="b-txt">'+fmt(it.uds7||0)+'</td><td class="'+sc+'" style="font-weight:700">'+fmt(it.stock||0)+'</td><td style="color:var(--txt3)">—</td><td><span class="mono">'+(it.promDiario?it.promDiario.toFixed(2):'-')+'/d</span></td><td>'+slbl+'</td></tr>';
+  }).join('');
   document.getElementById('page').innerHTML=
-    '<div class="kg">'+
-    kc('Unidades en Full',fmt(d.total_units||d.stock_quantity||0),null,'bt')+
-    kc('Pequeños/Medianos',fmt(d.small_medium_units||0),{t:'de '+fmt(d.small_medium_capacity||32000)+' u. disponibles',c:'ne'},'')+
-    kc('Grandes',fmt(d.large_units||0),{t:'de '+fmt(d.large_capacity||4000)+' u. disponibles',c:'ne'},'')+
-    kc('Puntaje de calidad',d.quality_score?d.quality_score+'pts':'—',null,'')+
-    '</div>'+
-    '<div class="kg">'+
-    kc('Sin ventas (30d)',d.no_sales_pct?d.no_sales_pct+'%':'0%',{t:'mantener bajo 2%',c:d.no_sales_pct>2?'dn':'up'},d.no_sales_pct>2?'rt':'gt')+
-    kc('Con antigüedad',d.old_stock_pct?d.old_stock_pct+'%':'0%',{t:'mantener bajo 4%',c:d.old_stock_pct>4?'dn':'up'},d.old_stock_pct>4?'rt':'gt')+
-    kc('Excede proyección',d.exceeds_projection_pct?d.exceeds_projection_pct+'%':'0%',{t:'mantener bajo 8%',c:d.exceeds_projection_pct>8?'dn':'up'},d.exceeds_projection_pct>8?'rt':'gt')+
-    kc('Calidad del stock',d.quality_label||'—',null,d.quality_label==='Buena calidad'?'gt':'')+
-    '</div>'+
-    panel('Estado del inventario Full','Métricas de Mercado Libre Full',
-      '<div style="padding:14px">'+
-      (!d.total_units&&!d.stock_quantity?'<div style="color:var(--txt3);font-size:11px">Los datos de Stock Full requieren que estés activo en el programa. Si usás Full, verificá que el endpoint esté habilitado para tu cuenta.</div>':'<div class="ok-banner">✓ Stock Full activo y funcionando correctamente.</div>')+
-      '</div>');
+    '<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Espacio utilizado en Full</div><div style="display:flex;gap:12px;flex-wrap:wrap">'+spaceCard('Pequeños / Medianos',smU,smC)+spaceCard('Grandes',lgU,lgC)+'</div></div>'+
+    '<div class="kg4" style="margin-bottom:12px">'+kc('Puntaje calidad',d.quality_score?d.quality_score+'pts':'—',null,d.quality_score>=80?'gt':'')+kc('Sin ventas 30d',d.no_sales_pct?d.no_sales_pct+'%':'0%',{t:'límite ML: 2%',c:(d.no_sales_pct||0)>2?'dn':'up'},(d.no_sales_pct||0)>2?'rt':'gt')+kc('Con antigüedad',d.old_stock_pct?d.old_stock_pct+'%':'0%',{t:'límite ML: 4%',c:(d.old_stock_pct||0)>4?'dn':'up'},(d.old_stock_pct||0)>4?'rt':'gt')+kc('Calidad del stock',d.quality_label||'—',null,d.quality_label==='Buena calidad'?'gt':'yt')+'</div>'+
+    panel('Publicaciones en Stock Full',items.length+' productos',
+      '<div style="padding:6px 14px;display:flex;justify-content:flex-end"><button class="tbtn primary" onclick="downloadFullExcel()" style="display:flex;align-items:center;gap:5px">⬇ Descargar Excel para planificación</button></div>'+
+      '<div class="tw"><table class="tbl"><thead><tr><th style="font-size:10px">MLA</th><th style="font-size:10px">SKU</th><th class="th-l" style="min-width:180px">Título</th><th class="th-l">Variante</th><th>Ventas 30d</th><th>Ventas 7d</th><th>Stock apto</th><th>En camino</th><th>Ritmo</th><th>Estado</th></tr></thead><tbody>'+tableRows+'</tbody></table><div class="tfoot"><span>'+items.length+' publicaciones</span></div></div>');
 }
 
-// REPUTACIÓN (cambio 7)
+// REPUTACIÓN
 function rReputacion() {
-  var rep=D.reputacion||{};
+  var rep=D.reputacion||{},m=D.metricas;
   var names={'5_green':'Verde (excelente)','4_light_green':'Verde claro','3_yellow':'Amarillo','2_orange':'Naranja','1_red':'Rojo (crítico)'};
   var pcts={'5_green':100,'4_light_green':80,'3_yellow':60,'2_orange':40,'1_red':20};
   var colors={'5_green':'var(--g)','4_light_green':'#84cc16','3_yellow':'#eab308','2_orange':'#f97316','1_red':'var(--r)'};
   var name=names[rep.nivel]||rep.nivel||'—',isGood=rep.nivel==='5_green'||rep.nivel==='4_light_green';
-  var m=D.metricas;
-
+  var cancelDet=D.canceladasDetalle||[];
+  var vendMotivos=['seller','venta_por_error','fuera_de_stock','precio_incorrecto','descripcion_incorrecta'];
+  var cancelAfectan=cancelDet.filter(function(c2){if(!c2.motivo||c2.motivo==='—')return true;var mo=c2.motivo.toLowerCase();return vendMotivos.some(function(k){return mo.includes(k);});});
+  var nCancelAf=Math.max(cancelAfectan.length,Math.round((m.ventas||0)*(rep.cancelaciones||0)));
+  var nReclamos=Math.round((m.ventas||0)*(rep.reclamos||0));
+  var nDemoras=Math.round((m.ventas||0)*(rep.demoras||0));
+  var idsCancel=cancelAfectan.map(function(c2){return c2.id;}).slice(0,12);
   document.getElementById('page').innerHTML=
-    '<div class="kg">'+
-    kc('Nivel de reputación',name,null,isGood?'gt':'rt')+
-    kc('Tasa de reclamos',rep.reclamos>0?(rep.reclamos*100).toFixed(2)+'%':'0%',{t:rep.reclamosMalo?'⚠ Sobre límite (>2%)':'✓ Sin reclamos',c:rep.reclamosMalo?'dn':'up'},rep.reclamosMalo?'rt':'gt')+
-    kc('Tasa cancelaciones',rep.cancelaciones>0?(rep.cancelaciones*100).toFixed(2)+'%':'0%',{t:rep.cancelacMalo?'⚠ Sobre límite (>5%)':'✓ Sin cancelaciones',c:rep.cancelacMalo?'dn':'up'},rep.cancelacMalo?'rt':'gt')+
-    kc('Demoras en despacho',rep.demoras>0?(rep.demoras*100).toFixed(2)+'%':'0%',{t:rep.demorasMalo?'⚠ Con demoras (>10%)':'✓ Sin demoras',c:rep.demorasMalo?'dn':'up'},rep.demorasMalo?'rt':'gt')+
-    '</div>'+
-    // Termómetro
-    '<div class="panel"><div class="ph"><div><div class="pt">Termómetro de reputación</div></div></div>'+
-    '<div style="padding:16px 18px">'+
-    '<div style="font-size:26px;font-weight:800;color:'+(colors[rep.nivel]||'var(--txt)')+'">'+name+'</div>'+
-    '<div class="rep-meter"><div class="rep-fill" style="width:'+(pcts[rep.nivel]||0)+'%;background:'+(colors[rep.nivel]||'var(--txt)')+'"></div></div>'+
-    '<div style="display:flex;justify-content:space-between;max-width:280px;margin-top:3px;font-size:9px;color:var(--txt3)"><span>Crítico</span><span>Excelente</span></div>'+
-    '</div></div>'+
-    // Detalle con métricas de ventas (cambio 7)
+    '<div class="kg4">'+kc('Nivel',name,null,isGood?'gt':'rt')+kc('Reclamos',rep.reclamos>0?(rep.reclamos*100).toFixed(2)+'%':'0%',{t:rep.reclamosMalo?'⚠ >2%':'✓ OK',c:rep.reclamosMalo?'dn':'up'},rep.reclamosMalo?'rt':'gt')+kc('Cancelaciones (vendedor)',rep.cancelaciones>0?(rep.cancelaciones*100).toFixed(2)+'%':'0%',{t:'solo iniciadas por vendedor · límite 5%',c:rep.cancelacMalo?'dn':'up'},rep.cancelacMalo?'rt':'gt')+kc('Demoras',rep.demoras>0?(rep.demoras*100).toFixed(2)+'%':'0%',{t:rep.demorasMalo?'⚠ >10%':'✓ OK',c:rep.demorasMalo?'dn':'up'},rep.demorasMalo?'rt':'gt')+'</div>'+
+    '<div class="panel"><div class="ph"><div><div class="pt">Termómetro de reputación</div></div></div><div style="padding:16px 18px"><div style="font-size:26px;font-weight:800;color:'+(colors[rep.nivel]||'var(--txt)')+'">'+name+'</div><div class="rep-meter"><div class="rep-fill" style="width:'+(pcts[rep.nivel]||0)+'%;background:'+(colors[rep.nivel]||'var(--txt)')+'"></div></div><div style="display:flex;justify-content:space-between;max-width:280px;margin-top:3px;font-size:9px;color:var(--txt3)"><span>Crítico</span><span>Excelente</span></div></div></div>'+
     '<div class="panel-grid">'+
-    panel('Métricas que afectan la reputación','Umbrales de Mercado Libre · con contexto de ventas',
-      '<div class="tw"><table class="tbl"><thead><tr><th class="th-l">Métrica</th><th class="th-l">Umbral</th><th class="th-l">Tu valor</th><th class="th-l">Estado</th><th>Ventas afectadas (est.)</th></tr></thead><tbody>'+
-      repRow('Reclamos','≤ 2%',rep.reclamos>0?(rep.reclamos*100).toFixed(2)+'%':'0%',!rep.reclamosMalo,Math.round(m.ventas*(rep.reclamos||0)))+
-      repRow('Cancelaciones','≤ 5%',rep.cancelaciones>0?(rep.cancelaciones*100).toFixed(2)+'%':'0%',!rep.cancelacMalo,Math.round(m.ventas*(rep.cancelaciones||0)))+
-      repRow('Demoras','≤ 10%',rep.demoras>0?(rep.demoras*100).toFixed(2)+'%':'0%',!rep.demorasMalo,Math.round(m.ventas*(rep.demoras||0)))+
-      '</tbody></table></div>')+
-    panel('Contexto de ventas del período','Para interpretar los indicadores',
-      '<div style="padding:12px 14px">'+
-      '<div style="font-size:11px;color:var(--txt2);margin-bottom:6px">Total de ventas del período: <strong class="g-txt">'+fmt(m.ventas)+'</strong></div>'+
-      '<div style="font-size:11px;color:var(--txt2);margin-bottom:6px">Facturación: <strong>'+fmtM(m.facturacion)+'</strong></div>'+
-      '<div style="font-size:11px;color:var(--txt2);margin-bottom:6px">Ticket promedio: <strong>'+fmtP(m.ticketPromedio)+'</strong></div>'+
-      '<div style="font-size:11px;color:var(--txt2)">Conversión: <strong>'+m.conversion.toFixed(1)+'%</strong></div>'+
-      ((!rep.reclamosMalo&&!rep.cancelacMalo&&!rep.demorasMalo)?
-        '<div class="ok-banner" style="margin-top:10px">✓ Tu cuenta está en estado óptimo. Sin indicadores negativos.</div>':
-        '<div class="warn-banner" style="margin-top:10px">⚠ Hay métricas que pueden afectar tu posicionamiento.</div>')+
-      '</div>')+
+    panel('Métricas que afectan la reputación','Solo cancelaciones por el vendedor · con IDs',
+      '<div class="tw"><table class="tbl"><thead><tr><th class="th-l">Métrica</th><th class="th-l">Umbral</th><th class="th-l">Tu valor</th><th class="th-l">Estado</th><th>Cant. afectadas</th><th class="th-l">IDs de ventas</th></tr></thead><tbody>'+
+      repRow2('Reclamos','≤ 2%',rep.reclamos>0?(rep.reclamos*100).toFixed(2)+'%':'0%',!rep.reclamosMalo,nReclamos,[])+
+      repRow2('Cancelaciones (vendedor)','≤ 5%',rep.cancelaciones>0?(rep.cancelaciones*100).toFixed(2)+'%':'0%',!rep.cancelacMalo,nCancelAf,idsCancel)+
+      repRow2('Demoras','≤ 10%',rep.demoras>0?(rep.demoras*100).toFixed(2)+'%':'0%',!rep.demorasMalo,nDemoras,[])+
+      '</tbody></table></div><div style="padding:6px 14px;font-size:10px;color:var(--txt3)">ℹ Solo las cancelaciones iniciadas por el vendedor afectan la reputación. Las canceladas por el comprador NO cuentan.</div>')+
+    panel('Contexto del período','',
+      '<div style="padding:12px 14px"><div style="font-size:11px;color:var(--txt2);margin-bottom:6px">Total ventas período: <strong class="g-txt">'+fmt(m.ventas)+'</strong></div><div style="font-size:11px;color:var(--txt2);margin-bottom:6px">Canceladas totales: <strong class="r-txt">'+cancelDet.length+'</strong></div><div style="font-size:11px;color:var(--txt2)">Canceladas que afectan rep.: <strong class="o-txt">'+cancelAfectan.length+'</strong></div>'+
+      ((!rep.reclamosMalo&&!rep.cancelacMalo&&!rep.demorasMalo)?'<div class="ok-banner" style="margin-top:10px">✓ Cuenta en estado óptimo.</div>':'<div class="warn-banner" style="margin-top:10px">⚠ Hay métricas que afectan tu posicionamiento.</div>')+'</div>')+
     '</div>';
 }
-
-function repRow(label,limite,valor,ok,afectadas){
-  var afectadasStr=afectadas>0?
-    '<span class="o-txt">'+fmt(afectadas)+' ventas est.</span>':
-    '<span class="ne">0 ventas</span>';
-  return '<tr><td class="td-l" style="font-weight:600">'+label+'</td>'+
-    '<td class="td-l"><span class="mono">'+limite+'</span></td>'+
-    '<td class="td-l" style="font-weight:700;color:'+(ok?'var(--g)':'var(--r)')+'">'+valor+'</td>'+
-    '<td class="td-l">'+pill(ok?'✓ OK':'⚠ Revisar',ok?'g':'r')+'</td>'+
-    '<td class="td-l">'+afectadasStr+'</td></tr>';
+function repRow2(label,limite,valor,ok,afectadas,ids){
+  var idsStr=ids&&ids.length>0?ids.map(function(id){return '<span class="mono" style="font-size:9px;background:var(--bg3);padding:1px 4px;border-radius:3px;margin:1px;display:inline-block">'+id+'</span>';}).join(''):'<span style="color:var(--txt3);font-size:10px">—</span>';
+  return '<tr><td class="td-l" style="font-weight:600">'+label+'</td><td class="td-l"><span class="mono">'+limite+'</span></td><td class="td-l" style="font-weight:700;color:'+(ok?'var(--g)':'var(--r)')+'">'+valor+'</td><td class="td-l">'+pill(ok?'✓ OK':'⚠ Revisar',ok?'g':'r')+'</td><td class="td-l"><span class="'+(ok?'ne':afectadas>0?'o-txt':'ne')+'">'+fmt(afectadas||0)+'</span></td><td class="td-l" style="max-width:280px;line-height:1.8">'+idsStr+'</td></tr>';
+}
+function repRow(label,limite,valor,ok,afectadas){return repRow2(label,limite,valor,ok,afectadas,[]);}
+// CANCELADAS & DEVUELTAS
+function rCanceladasDevueltas(){
+  var dets=D.canceladasDetalle||[];
+  if(!dets.length){document.getElementById('page').innerHTML='<div class="ok-banner">✓ Sin ventas canceladas en el período.</div>';return;}
+  var porMotivo={};dets.forEach(function(c2){var mo=(c2.motivo&&c2.motivo!=='—')?c2.motivo.replace(/_/g,' '):'sin información';porMotivo[mo]=(porMotivo[mo]||0)+1;});
+  var motivoRows=Object.entries(porMotivo).sort(function(a,b){return b[1]-a[1];}).map(function(e,i){return '<tr><td>'+(i+1)+'</td><td class="td-l" style="font-weight:600">'+e[0]+'</td><td class="g-txt" style="font-weight:700">'+fmt(e[1])+'</td></tr>';}).join('');
+  var detRows=dets.map(function(c2,i){var mCls=(c2.motivo&&c2.motivo!=='—'&&c2.motivo.toLowerCase().includes('seller'))?'r-txt':'o-txt';return '<tr><td><span class="mono" style="font-size:10px">'+c2.id+'</span></td><td style="font-size:10px;color:var(--txt3)">'+c2.fecha+'</td><td class="td-l" style="font-size:11px">'+cleanT(c2.producto).slice(0,45)+'</td><td class="td-l '+mCls+'" style="font-weight:600;font-size:11px">'+((c2.motivo&&c2.motivo!=='—')?c2.motivo.replace(/_/g,' '):'sin información')+'</td><td style="text-align:right">'+(c2.total>0?'<span class="r-txt">'+fmtP(c2.total)+'</span>':'—')+'</td></tr>';}).join('');
+  document.getElementById('page').innerHTML=
+    '<div class="kg3">'+kc('Total canceladas',fmt(dets.length),{t:'período',c:'ne'},'rt')+kc('Con motivo',fmt(dets.filter(function(c2){return c2.motivo&&c2.motivo!=='—';}).length),null,'')+kc('Monto perdido',fmtM(dets.reduce(function(s,c2){return s+(c2.total||0);},0)),{t:'total canceladas',c:'dn'},'rt')+'</div>'+
+    '<div class="panel-grid">'+
+    panel('Resumen por motivo','',dets.length?'<div class="tw"><table class="tbl"><thead><tr><th>#</th><th class="th-l">Motivo</th><th>Cantidad</th></tr></thead><tbody>'+motivoRows+'</tbody></table></div>':'<div class="empty">Sin datos</div>')+
+    panel('Cómo leer los motivos','',
+      '<div style="padding:12px 14px"><div style="font-size:11px;color:var(--txt2);margin-bottom:8px">Los motivos en <span class="r-txt">rojo</span> son iniciados por el vendedor y afectan la reputación (fuera de stock, precio incorrecto, etc.).</div><div style="font-size:11px;color:var(--txt2)">Para ver motivos exactos, verificá que el campo <span class="mono">motivo_cancelacion</span> se esté sincronizando en el pipeline.</div></div>')+
+    '</div>'+
+    panel('Detalle de ventas canceladas y devueltas',dets.length+' registros',
+      '<div class="tw"><table class="tbl"><thead><tr><th class="th-l">ID de venta</th><th class="th-l">Fecha</th><th class="th-l" style="min-width:180px">Producto</th><th class="th-l">Motivo de cancelación</th><th>Monto</th></tr></thead><tbody>'+detRows+'</tbody></table><div class="tfoot"><span>'+dets.length+' ventas canceladas</span></div></div>');
 }
 
 
