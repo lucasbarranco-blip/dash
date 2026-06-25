@@ -344,10 +344,20 @@ async function loadData() {
 
   try {
     // ── 1. Ventas del período (todas, sin límite) ──────────
-    var vQs = 'select=id,producto_id,producto_titulo,cantidad,total,estado,hora,fecha,costo_envio,comision_ml,buyer_id,motivo_cancelacion,tipo_cancelacion';
+    var vQsBase = 'select=id,producto_id,producto_titulo,cantidad,total,estado,hora,fecha,costo_envio,comision_ml';
+    var vQsExt  = vQsBase + ',buyer_id,motivo_cancelacion,tipo_cancelacion';
+    var vQs = vQsBase; // default seguro
+    // Detectar si existen columnas extendidas (se actualiza asíncronamente)
     if (desde) vQs += '&fecha=gte.' + desde;
     if (hasta) vQs += '&fecha=lte.' + hasta;
-    var ventas = await sbAll('/ventas', vQs);
+    var ventas;
+    try {
+      ventas = await sbAll('/ventas', vQsExt + '&fecha=gte.'+desde+'&fecha=lte.'+hasta);
+      vQs = vQsExt; // confirmar que existen las columnas extendidas
+    } catch(e) {
+      ventas = await sbAll('/ventas', vQsBase + '&fecha=gte.'+desde+'&fecha=lte.'+hasta);
+    }
+    var _ignoreVQs2 = ''; // línea placeholder
 
     // ── 2. Productos (todos) ───────────────────────────────
     var productos = await sbAll('/productos', 'select=id,titulo,precio,precio_original,stock,vendidos,estado,categoria_id,permalink,visitas_30d,health,listing_type_id,condition');
