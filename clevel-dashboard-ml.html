@@ -6,6 +6,8 @@
 <title>Dashboard C-Level — Ganga Home v10</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script>try{if(window.Chart&&window.ChartDataLabels)Chart.unregister(ChartDataLabels);}catch(e){}</script>
 <script src="https://cdn.sheetjs.com/xlsxh-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{
@@ -163,7 +165,7 @@ input[type=text]:focus,input[type=date]:focus,select:focus{border-color:var(--yd
 .o-txt{color:var(--o);font-weight:600}.p-txt{color:var(--p);font-weight:600}
 
 .chart-wrap{position:relative;width:100%;padding:10px 12px}
-.chart-wrap.h160{height:160px}.chart-wrap.h200{height:200px}.chart-wrap.h240{height:240px}
+.chart-wrap.h160{height:160px}.chart-wrap.h200{height:200px}.chart-wrap.h240{height:240px}.chart-wrap.h260{height:260px}.chart-wrap.h300{height:300px}
 
 .spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--yd);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -764,12 +766,12 @@ function rResumen() {
 
   var html=
     (isFilt?'<div class="info-banner">📊 Mostrando <strong>'+FILTERED.length+' de '+ALL.length+'</strong> productos. Métricas globales corresponden al período completo.</div>':'')+
-    '<div class="kg">'+
+    '<div class="'+(m.conversion>0?'kg5':'kg')+'">'+
     kc('Ventas brutas',fmtM(m.facturacion),{t:D.muestreo,c:'ne'},'yt')+
     kc('Tasa de recompra',D.tasaRecompra>0?(D.tasaRecompra*100).toFixed(1)+'%':'—',{t:(D.repurchaseBuyers||0)+' de '+(D.totalBuyers||0)+' compradores volvieron',c:D.tasaRecompra>0.15?'up':'ne'},D.tasaRecompra>0.15?'gt':'')+
     kc('Unidades vendidas',fmt(m.unidades),null,'yt')+
     kc('Cantidad de ventas',fmt(m.ventas),null,'')+
-    kc('Conversión',conv,convSub,'')+
+    (m.conversion>0?kc('Conversión',conv,convSub,''):'')+
     '</div>'+
     '<div class="kg">'+
     kc('Ticket promedio',m.ticketPromedio>0?fmtP(m.ticketPromedio):'—',null,'')+
@@ -832,10 +834,37 @@ function rHeatmap() {
 }
 
 // tripleMetricChart helper
-function tripleMetricChart(id,lbl,vnt,fac,und){var el=document.getElementById(id);if(!el)return;if(charts[id])charts[id].destroy();charts[id]=new Chart(el,{type:'bar',data:{labels:lbl,datasets:[{label:'Ventas ($)',data:fac,backgroundColor:'rgba(200,180,0,.7)',borderColor:'#c8b400',borderWidth:1.5,borderRadius:3,yAxisID:'yF'},{label:'Cant.',data:vnt,backgroundColor:'rgba(37,99,235,.4)',borderColor:'#2563eb',borderWidth:1.5,borderRadius:3,yAxisID:'yC'},{label:'Uds.',data:und,backgroundColor:'rgba(22,163,74,.4)',borderColor:'#16a34a',borderWidth:1.5,borderRadius:3,yAxisID:'yC'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}},scales:{yF:{type:'linear',position:'left',ticks:{color:'#9ca3af',font:{size:8},callback:function(v){return v>=1e6?'$'+(v/1e6).toFixed(1)+'M':'$'+Math.round(v/1000)+'k';}}},yC:{type:'linear',position:'right',grid:{display:false},ticks:{color:'#9ca3af',font:{size:8}}},x:{ticks:{color:'#9ca3af',font:{size:8},maxRotation:45}}}}});}
-function rEvolDia(){var dd=D.ventasPorDia||{},dias=Object.keys(dd).sort();if(!dias.length){document.getElementById('page').innerHTML='<div class="empty">Sin datos</div>';return;}document.getElementById('page').innerHTML='<div class="kg3">'+kc('Ventas brutas',fmtM(dias.reduce(function(s,d){return s+(dd[d].facturacion||0);},0)),{t:'período',c:'ne'},'yt')+kc('Cant. ventas',fmt(dias.reduce(function(s,d){return s+(dd[d].ventas||0);},0)),null,'')+kc('Unidades',fmt(dias.reduce(function(s,d){return s+(dd[d].unidades||0);},0)),null,'')+'</div>'+panel('Evolución diaria','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h260"><canvas id="ch-evol-dia"></canvas></div>');tripleMetricChart('ch-evol-dia',dias.map(function(d){return d.slice(5);}),dias.map(function(d){return dd[d].ventas||0;}),dias.map(function(d){return Math.round(dd[d].facturacion||0);}),dias.map(function(d){return dd[d].unidades||0;}));}
-function rEvolHora(){var vh=D.ventasPorHora||{},fh=D.facturacionPorHora||{},uh=D.unidadesPorHora||{},lbl=[],vA=[],fA=[],uA=[];for(var h=0;h<24;h++){lbl.push(h+'h');vA.push(vh[h]||0);fA.push(Math.round(fh[h]||0));uA.push(uh[h]||0);}var topH=vA.indexOf(Math.max.apply(null,vA));document.getElementById('page').innerHTML='<div class="kg3">'+kc('Franja pico',topH+'h–'+(topH+1)+'h',{t:fmt(vA[topH])+' ventas',c:'up'},'yt')+kc('Nocturnas 0–7h',fmt(vA.slice(0,8).reduce(function(s,v){return s+v;},0)),null,'')+kc('Diurnas 8–22h',fmt(vA.slice(8,23).reduce(function(s,v){return s+v;},0)),{t:'hábiles',c:'up'},'gt')+'</div>'+panel('Por hora del día','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h260"><canvas id="ch-evol-hora"></canvas></div>');tripleMetricChart('ch-evol-hora',lbl,vA,fA,uA);}
-function rEvolSemana(){var vs=D.ventasPorSemana||{},fs=D.facturacionPorSemana||{},us=D.unidadesPorSemana||{};var nm=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],vA=nm.map(function(_,i){return vs[i]||0;}),fA=nm.map(function(_,i){return Math.round(fs[i]||0);}),uA=nm.map(function(_,i){return us[i]||0;}),topD=vA.indexOf(Math.max.apply(null,vA));document.getElementById('page').innerHTML='<div class="kg3">'+kc('Mejor día',nm[topD],{t:fmt(vA[topD])+' ventas',c:'up'},'yt')+kc('Fin de semana',fmt((vs[6]||0)+(vs[0]||0)),null,'')+kc('Semana L–V',fmt([1,2,3,4,5].reduce(function(s,i){return s+(vs[i]||0);},0)),null,'')+'</div>'+panel('Por día de semana','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h260"><canvas id="ch-evol-sem"></canvas></div>');tripleMetricChart('ch-evol-sem',nm,vA,fA,uA);}
+function tripleMetricChart(id,lbl,vnt,fac,und){var el=document.getElementById(id);if(!el)return;if(charts[id])charts[id].destroy();
+  var dense=lbl.length>12, hasDL=(typeof ChartDataLabels!=='undefined');
+  var money=function(v){return v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1e3?'$'+Math.round(v/1e3)+'k':'$'+v;};
+  charts[id]=new Chart(el,{
+    type:'bar',
+    data:{labels:lbl,datasets:[
+      {type:'bar',label:'Ventas ($)',data:fac,backgroundColor:'rgba(200,180,0,.6)',borderColor:'#c8b400',borderWidth:1,borderRadius:3,yAxisID:'yF',order:3,
+        datalabels:{display:true,anchor:'end',align:'top',rotation:-90,offset:3,clamp:true,clip:false,color:'#8a7600',font:{size:7,weight:'700'},formatter:function(v){return v>0?money(v):'';}}},
+      {type:'line',label:'Cant.',data:vnt,borderColor:'#2563eb',backgroundColor:'#2563eb',borderWidth:2,tension:.35,pointRadius:dense?0:2.5,pointHoverRadius:4,yAxisID:'yC',order:1,
+        datalabels:{display:!dense,anchor:'end',align:'top',offset:4,color:'#2563eb',font:{size:7,weight:'700'},formatter:function(v){return v>0?fmt(v):'';}}},
+      {type:'line',label:'Uds.',data:und,borderColor:'#16a34a',backgroundColor:'#16a34a',borderWidth:2,borderDash:[4,3],tension:.35,pointRadius:dense?0:2.5,pointHoverRadius:4,yAxisID:'yC',order:2,
+        datalabels:{display:!dense,anchor:'start',align:'bottom',offset:4,color:'#16a34a',font:{size:7,weight:'700'},formatter:function(v){return v>0?fmt(v):'';}}}
+    ]},
+    plugins:hasDL?[ChartDataLabels]:[],
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      layout:{padding:{top:16,right:6,left:2}},
+      plugins:{
+        legend:{display:true,position:'top',labels:{color:'#4b5563',font:{size:9},boxWidth:10,usePointStyle:true}},
+        tooltip:{callbacks:{label:function(c){var l=c.dataset.label||'',v=c.parsed.y;return l+': '+(l.indexOf('$')>=0?money(v):fmt(v));}}},
+        datalabels:{display:false}
+      },
+      scales:{
+        yF:{type:'linear',position:'left',beginAtZero:true,grace:'22%',grid:{color:'rgba(0,0,0,.04)'},ticks:{color:'#b89e00',font:{size:8},callback:function(v){return v>=1e6?'$'+(v/1e6).toFixed(1)+'M':'$'+Math.round(v/1000)+'k';}}},
+        yC:{type:'linear',position:'right',beginAtZero:true,grace:'28%',grid:{display:false},ticks:{color:'#2563eb',font:{size:8}}},
+        x:{grid:{display:false},ticks:{color:'#9ca3af',font:{size:8},maxRotation:45,autoSkip:true,maxTicksLimit:dense?16:8}}
+      }
+    }
+  });}
+function rEvolDia(){var dd=D.ventasPorDia||{},dias=Object.keys(dd).sort();if(!dias.length){document.getElementById('page').innerHTML='<div class="empty">Sin datos</div>';return;}document.getElementById('page').innerHTML='<div class="kg3">'+kc('Ventas brutas',fmtM(dias.reduce(function(s,d){return s+(dd[d].facturacion||0);},0)),{t:'período',c:'ne'},'yt')+kc('Cant. ventas',fmt(dias.reduce(function(s,d){return s+(dd[d].ventas||0);},0)),null,'')+kc('Unidades',fmt(dias.reduce(function(s,d){return s+(dd[d].unidades||0);},0)),null,'')+'</div>'+panel('Evolución diaria','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h300"><canvas id="ch-evol-dia"></canvas></div>');tripleMetricChart('ch-evol-dia',dias.map(function(d){return d.slice(5);}),dias.map(function(d){return dd[d].ventas||0;}),dias.map(function(d){return Math.round(dd[d].facturacion||0);}),dias.map(function(d){return dd[d].unidades||0;}));}
+function rEvolHora(){var vh=D.ventasPorHora||{},fh=D.facturacionPorHora||{},uh=D.unidadesPorHora||{},lbl=[],vA=[],fA=[],uA=[];for(var h=0;h<24;h++){lbl.push(h+'h');vA.push(vh[h]||0);fA.push(Math.round(fh[h]||0));uA.push(uh[h]||0);}var topH=vA.indexOf(Math.max.apply(null,vA));document.getElementById('page').innerHTML='<div class="kg3">'+kc('Franja pico',topH+'h–'+(topH+1)+'h',{t:fmt(vA[topH])+' ventas',c:'up'},'yt')+kc('Nocturnas 0–7h',fmt(vA.slice(0,8).reduce(function(s,v){return s+v;},0)),null,'')+kc('Diurnas 8–22h',fmt(vA.slice(8,23).reduce(function(s,v){return s+v;},0)),{t:'hábiles',c:'up'},'gt')+'</div>'+panel('Por hora del día','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h300"><canvas id="ch-evol-hora"></canvas></div>');tripleMetricChart('ch-evol-hora',lbl,vA,fA,uA);}
+function rEvolSemana(){var vs=D.ventasPorSemana||{},fs=D.facturacionPorSemana||{},us=D.unidadesPorSemana||{};var nm=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],vA=nm.map(function(_,i){return vs[i]||0;}),fA=nm.map(function(_,i){return Math.round(fs[i]||0);}),uA=nm.map(function(_,i){return us[i]||0;}),topD=vA.indexOf(Math.max.apply(null,vA));document.getElementById('page').innerHTML='<div class="kg3">'+kc('Mejor día',nm[topD],{t:fmt(vA[topD])+' ventas',c:'up'},'yt')+kc('Fin de semana',fmt((vs[6]||0)+(vs[0]||0)),null,'')+kc('Semana L–V',fmt([1,2,3,4,5].reduce(function(s,i){return s+(vs[i]||0);},0)),null,'')+'</div>'+panel('Por día de semana','Ventas brutas · Cantidad · Unidades','<div class="chart-wrap h300"><canvas id="ch-evol-sem"></canvas></div>');tripleMetricChart('ch-evol-sem',nm,vA,fA,uA);}
 function rVisitasHora(){var vh=D.ventasPorHora||{},tV=D.metricas.visitas||0,tH=Object.values(vh).reduce(function(s,v){return s+v;},0)||1,lbl=[],vA=[],visA=[];for(var h=0;h<24;h++){lbl.push(h+'h');vA.push(vh[h]||0);visA.push(Math.round(tV*(vh[h]||0)/tH));}document.getElementById('page').innerHTML=panel('Visitas vs ventas por hora','Visitas estimadas proporcionalmente al patrón horario','<div class="info-banner">ℹ Visitas estimadas a partir del total del período.</div><div class="chart-wrap h260"><canvas id="ch-vis-hora"></canvas></div>');setTimeout(function(){var el=document.getElementById('ch-vis-hora');if(!el)return;if(charts['ch-vis-hora'])charts['ch-vis-hora'].destroy();charts['ch-vis-hora']=new Chart(el,{type:'bar',data:{labels:lbl,datasets:[{label:'Visitas (est.)',data:visA,backgroundColor:'rgba(124,58,237,.3)',borderColor:'#7c3aed',borderWidth:1.5,borderRadius:3,yAxisID:'yV'},{label:'Ventas',data:vA,backgroundColor:'rgba(200,180,0,.75)',borderColor:'#c8b400',borderWidth:1.5,borderRadius:3,yAxisID:'yN'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}},scales:{yV:{type:'linear',position:'left',ticks:{color:'#7c3aed',font:{size:8}}},yN:{type:'linear',position:'right',grid:{display:false},ticks:{color:'#c8b400',font:{size:8}}},x:{ticks:{color:'#9ca3af',font:{size:8}}}}}});},60);}
 
 // VENTAS POR DÍA
