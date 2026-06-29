@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- VERSION v2-fix-1441 : fix pestañas + horizonte editable -->
 <html lang="es"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Reposición Full · Ganga Home</title>
@@ -23,6 +24,7 @@ font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 .navitem .nbadge.red{background:#fbe5e2;color:var(--red)}
 .navitem .nbadge.blue{background:#e4ecfb;color:var(--blue)}
 .navsep{height:1px;background:var(--line);margin:4px 0}
+.page{display:none}.page.on{display:block}
 .page .sbody{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh);overflow:hidden;padding:6px 0}
 @media(max-width:760px){.app{grid-template-columns:1fr;gap:14px}.side{position:static}
  .nav{display:flex;overflow-x:auto}.navitem{border-left:none;border-bottom:3px solid transparent;white-space:nowrap}
@@ -100,7 +102,7 @@ tr:hover td{background:#faf8f1}
 </style></head>
 <body>
 <header><div class="wrap">
-  <div><b>Reposición Full</b><br><span class="sub">Ganga Home</span></div>
+  <div><b>Reposición Full</b><br><span class="sub">Ganga Home · v2-fix-1441</span></div>
   <div class="spacer"></div>
   <span class="statepill"><span class="dot" id="dot"></span><span id="stateTxt">Cargando…</span></span>
   <button class="topbtn" id="btnReload">↻ Actualizar</button>
@@ -218,7 +220,15 @@ tr:hover td{background:#faf8f1}
   <!-- 3. PROYECCIÓN -->
   <div class="page" id="secProj">
     <h2 style="margin:8px 0 14px;font-size:18px">¿Me quedo sin espacio o sin stock?</h2>
-    <div class="sbody"><div style="padding:16px 18px"><div id="chart"></div></div></div>
+    <div class="sbody">
+      <div class="cfg">
+        <div><label>Horizonte (semanas)</label><input id="cWeeks" type="number" value="8" min="1" max="26" step="1"></div>
+        <div><label>Tope envío/viernes</label><input id="cWeekly2" type="number" value="15000" step="500"></div>
+        <div><label>Buffer (días)</label><input id="cBuffer2" type="number" value="10"></div>
+        <div><label>Lead time (días)</label><input id="cLead2" type="number" value="2"></div>
+      </div>
+      <div style="padding:16px 18px"><div id="chart"></div></div>
+    </div>
   </div>
 
   <!-- 4. MARKETING -->
@@ -292,7 +302,11 @@ try{const r=localStorage.getItem(DK);if(r)DISC=new Set(JSON.parse(r));}catch(e){
 const saveDisc=()=>{try{localStorage.setItem(DK,JSON.stringify([...DISC]))}catch(e){}};
 const isDisc=r=>DISC.has((r.mla||'').trim());
 
-function cfg(){return{weekly:+$('#cWeekly').value||15000,buffer:+$('#cBuffer').value||10,lead:+$('#cLead').value||2,weeks:8,capPM:60870,capGX:7000};}
+function cfg(){
+ const gv=(a,b,def)=>{const ea=$('#'+a),eb=$('#'+b);const va=ea&&ea.value!==''?+ea.value:null;const vb=eb&&eb.value!==''?+eb.value:null;return (va!=null?va:vb!=null?vb:def);};
+ return{weekly:gv('cWeekly','cWeekly2',15000),buffer:gv('cBuffer','cBuffer2',10),lead:gv('cLead','cLead2',2),
+  weeks:Math.max(1,Math.min(26,gv('cWeeks','cWeeks',8))),capPM:60870,capGX:7000};
+}
 function nextFri(){const d=new Date();return(5-d.getDay()+7)%7;}
 
 function optimize(){
@@ -712,7 +726,17 @@ $$('.navitem').forEach(it=>it.onclick=()=>{
 });
 $('#btnReload').onclick=loadLive;
 $('#planSearch').oninput=e=>{planQ=e.target.value;renderPlan();};
-$$('#cWeekly,#cBuffer,#cLead').forEach&&['cWeekly','cBuffer','cLead'].forEach(id=>{const el=$('#'+id);if(el)el.onchange=recompute;});
+// sincronizar inputs duplicados (plan <-> proyección) y recalcular
+function syncCfg(srcId){
+ const pairs=[['cWeekly','cWeekly2'],['cBuffer','cBuffer2'],['cLead','cLead2']];
+ for(const [a,b] of pairs){const ea=$('#'+a),eb=$('#'+b);
+  if(srcId===a&&ea&&eb)eb.value=ea.value;
+  if(srcId===b&&ea&&eb)ea.value=eb.value;}
+ recompute();
+}
+['cWeekly','cBuffer','cLead','cWeekly2','cBuffer2','cLead2','cWeeks'].forEach(id=>{
+ const el=$('#'+id);if(el)el.onchange=()=>syncCfg(id);
+});
 $('#btnDiscAdd').onclick=()=>{const v=$('#discAdd').value.trim();if(v){v.split(/[\s,;]+/).filter(Boolean).forEach(k=>DISC.add(k));saveDisc();$('#discAdd').value='';recompute();}};
 $('#discAdd').onkeydown=e=>{if(e.key==='Enter')$('#btnDiscAdd').click();};
 
