@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- VERSION catalogo v1-1503 -->
+<!-- VERSION catalogo v3-1518 -->
 <html lang="es"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Salud del Catálogo · Ganga Home</title>
@@ -72,10 +72,50 @@ button:hover{box-shadow:var(--sh)}button.dark{background:var(--ink);color:#fff;b
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--mut);margin:0 0 14px;align-items:center}
 .legend .li{display:flex;align-items:center;gap:6px}
 @media(max-width:520px){.grid{grid-template-columns:1fr}}
+
+/* secciones por estado */
+.estsection{margin:0 0 26px}
+.estsection-head{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+.estsection-head h3{margin:0;font-size:15px;font-weight:700}
+.estcount{font-size:12px;font-weight:700;background:var(--ink);color:#fff;padding:2px 9px;border-radius:999px}
+.est-section-prog .estsection-head h3{color:var(--blue)}
+.est-section-opt .estsection-head h3{color:var(--green)}
+.estsection-empty{padding:18px;text-align:center;color:var(--mut);font-size:12.5px;background:#faf8f1;border:1px dashed var(--line);border-radius:12px}
+
+/* borde de color de tarjeta según estado */
+.card.est-prog{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue),var(--sh)}
+.card.est-opt{border-color:var(--green);opacity:.92}
+.card{position:relative}
+
+/* barra de botones de estado */
+.estbar{display:flex;gap:8px;padding:10px 13px;border-top:1px solid var(--line);background:#faf8f1;flex-wrap:wrap}
+.estbtn{font-size:12px;font-weight:600;border-radius:8px;padding:7px 12px;border:1px solid var(--line);cursor:pointer;background:var(--card)}
+.estbtn.start{background:var(--blue);color:#fff;border-color:var(--blue);flex:1}
+.estbtn.done{background:var(--green);color:#fff;border-color:var(--green);flex:1}
+.estbtn.reopen{background:var(--card);color:var(--blue);border-color:var(--blue);flex:1}
+.estbtn.ghost{color:var(--mut)}
+.estbtn:hover{box-shadow:var(--sh)}
+
+/* botón foco en la esquina de la tarjeta */
+.top{position:relative}
+.focusbtn{position:absolute;top:0;right:0;background:none;border:none;color:var(--mut);font-size:15px;cursor:pointer;padding:2px 4px;line-height:1}
+.focusbtn:hover{color:var(--blue)}
+
+/* modo foco (modal) */
+.focus-layer{position:fixed;inset:0;background:rgba(19,33,29,.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px}
+.focus-box{background:var(--bg);border-radius:16px;width:100%;max-width:460px;max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.focus-bar{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:2}
+.fnav{font-size:12.5px;padding:7px 12px}.fnav:disabled{opacity:.4;cursor:default}
+.fpos{font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
+.fclose{font-size:12.5px;background:var(--ink);color:#fff;border-color:var(--ink);padding:7px 13px}
+.focus-card{padding:14px}
+.focus-card .card{border-radius:14px}
+.focus-card .crit .c{padding:12px 14px;font-size:13px}
+.focus-card .note-ta{min-height:70px}
 </style></head>
 <body>
 <header><div class="in">
-  <div><b>Salud del Catálogo</b><br><span class="sub">Ganga Home · v1-1503</span></div>
+  <div><b>Salud del Catálogo</b><br><span class="sub">Ganga Home · v3-1518</span></div>
   <div class="spacer"></div>
   <span class="statepill"><span class="dot" id="dot"></span><span id="stateTxt">Cargando…</span></span>
   <button class="topbtn" id="btnReload">↻ Actualizar</button>
@@ -107,8 +147,21 @@ button:hover{box-shadow:var(--sh)}button.dark{background:var(--ink);color:#fff;b
     <span class="cnt" id="cnt"></span>
   </div>
 
-  <div class="grid" id="grid"></div>
+  <div id="grid"></div>
   <div class="empty" id="empty" style="display:none">Sin resultados.</div>
+</div>
+
+<div id="focusLayer" class="focus-layer" style="display:none">
+  <div class="focus-box">
+    <div class="focus-bar">
+      <button id="focusPrev" class="fnav">← Anterior</button>
+      <span id="focusPos" class="fpos"></span>
+      <button id="focusNext" class="fnav">Siguiente →</button>
+      <span style="flex:1"></span>
+      <button id="focusClose" class="fclose">Cerrar ✕</button>
+    </div>
+    <div id="focusCard" class="focus-card"></div>
+  </div>
 </div>
 
 <script>
@@ -144,7 +197,7 @@ const MK='gh_catalogo_checks_v1';
 let CHECKS={}; // {mla:{titulo:bool,desc:bool,fotos:bool}}
 try{const r=localStorage.getItem(MK);if(r)CHECKS=JSON.parse(r);}catch(e){}
 const saveChecks=()=>{try{localStorage.setItem(MK,JSON.stringify(CHECKS))}catch(e){}};
-function getChk(mla){return CHECKS[mla]||{titulo:false,desc:false,fotos:false};}
+function getChk(mla){return CHECKS[mla]||{titulo:false,desc:false,fotos:false,clip:false};}
 function toggleChk(mla,key){const c=getChk(mla);c[key]=!c[key];CHECKS[mla]=c;saveChecks();compute();render();}
 
 // ===== notas/comentarios por publicación (persistentes) =====
@@ -154,6 +207,14 @@ try{const r=localStorage.getItem(NK);if(r)NOTAS=JSON.parse(r);}catch(e){}
 const saveNotas=()=>{try{localStorage.setItem(NK,JSON.stringify(NOTAS))}catch(e){}};
 function getNota(mla){return NOTAS[mla]||'';}
 function setNota(mla,txt){if(txt&&txt.trim()){NOTAS[mla]=txt;}else{delete NOTAS[mla];}saveNotas();}
+
+// ===== estado de trabajo por publicación (kanban) =====
+const EK='gh_catalogo_estado_v1';
+let ESTADO={}; // {mla:'sin'|'prog'|'opt'} ; default 'sin'
+try{const r=localStorage.getItem(EK);if(r)ESTADO=JSON.parse(r);}catch(e){}
+const saveEstado=()=>{try{localStorage.setItem(EK,JSON.stringify(ESTADO))}catch(e){}};
+function getEstado(mla){return ESTADO[mla]||'sin';}
+function setEstado(mla,st){if(st==='sin'){delete ESTADO[mla];}else{ESTADO[mla]=st;}saveEstado();renderHero();render();}
 
 // ===== evaluación de criterios =====
 // cada criterio devuelve {state:'g'|'a'|'r', val:'texto', pts:0..1}
@@ -179,11 +240,11 @@ function compute(){
   const stock=evalStock(p),rot=evalRot(p),precio=evalPrecio(p);
   // manuales: hecho=1, sin hacer=0 (rojo si no, verde si sí)
   const man=k=>({state:c[k]?'g':'r',val:c[k]?'✓ revisado':'pendiente',pts:c[k]?1:0,done:c[k]});
-  const titulo=man('titulo'),desc=man('desc'),fotos=man('fotos');
-  p.crit={stock,rot,precio,titulo,desc,fotos};
-  const all=[stock,rot,precio,titulo,desc,fotos];
+  const titulo=man('titulo'),desc=man('desc'),fotos=man('fotos'),clip=man('clip');
+  p.crit={stock,rot,precio,titulo,desc,fotos,clip};
+  const all=[stock,rot,precio,titulo,desc,fotos,clip];
   p.score=Math.round(all.reduce((a,x)=>a+x.pts,0)/all.length*100);
-  p.pending=[titulo,desc,fotos].filter(x=>!x.done).length;
+  p.pending=[titulo,desc,fotos,clip].filter(x=>!x.done).length;
  });
 }
 
@@ -196,16 +257,49 @@ function ring(score){
   +'<circle cx="29" cy="29" r="'+r+'" fill="none" stroke="'+scoreColor(score)+'" stroke-width="5" stroke-linecap="round" stroke-dasharray="'+c.toFixed(1)+'" stroke-dashoffset="'+off.toFixed(1)+'"/>'
   +'</svg><div class="num" style="color:'+scoreColor(score)+'">'+score+'</div></div>';
 }
-function critRow(label,r,auto,mla,key){
+function critRow(label,r,auto,mla,key,full){
+ const fc=full?' style="grid-column:1/-1"':'';
  if(auto){
-  return '<div class="c"><span class="ind '+r.state+'"></span><span class="lbl">'+label+'</span><span class="val">'+r.val+'</span></div>';
+  return '<div class="c"'+fc+'><span class="ind '+r.state+'"></span><span class="lbl">'+label+'</span><span class="val">'+r.val+'</span></div>';
  }
  // manual: clickeable
- return '<div class="c manual'+(r.done?' done':'')+'" data-mla="'+mla+'" data-key="'+key+'">'
+ return '<div class="c manual'+(r.done?' done':'')+'"'+fc+' data-mla="'+mla+'" data-key="'+key+'">'
   +'<span class="chk">'+(r.done?'✓':'')+'</span><span class="lbl">'+label+'</span></div>';
 }
 let sortMode='score-asc',filterMode='all',q='';
-function render(){
+function cardHTML(p){const c=p.crit;const est=getEstado(p.mla);
+ const estBtns=
+  '<div class="estbar">'
+  +(est==='sin'?'<button class="estbtn start" data-mla="'+p.mla+'" data-to="prog">▶ Empezar a trabajar</button>':'')
+  +(est==='prog'?'<button class="estbtn done" data-mla="'+p.mla+'" data-to="opt">✓ Marcar optimizada</button>'
+     +'<button class="estbtn ghost" data-mla="'+p.mla+'" data-to="sin">Volver a sin empezar</button>':'')
+  +(est==='opt'?'<button class="estbtn reopen" data-mla="'+p.mla+'" data-to="prog">↩ Reabrir</button>':'')
+  +'</div>';
+ return '<div class="card est-'+est+'" data-mla="'+p.mla+'"><div class="top">'+ring(p.score)
+   +'<div class="meta"><div class="ttl">'+esc(p.titulo)+'</div>'
+   +'<div class="mla">'+p.mla+' <a class="mllink" href="'+p.link+'" target="_blank" rel="noopener" title="Abrir publicación en Mercado Libre">Ver en ML ↗</a></div>'
+   +'<div class="tags"><span class="tag '+(CAT(p.tramo)==='gx'?'gx':'')+'">'+FEEL[p.tramo]+'</span>'
+     +(p.pending?'<span class="tag" style="background:#fbe5e2;color:var(--red)">'+p.pending+' pendiente'+(p.pending>1?'s':'')+'</span>':'<span class="tag" style="background:#dcf0e6;color:var(--green)">todo tildado</span>')
+   +'</div></div>'
+   +'<button class="focusbtn" data-mla="'+p.mla+'" title="Abrir en modo foco">⛶</button>'
+   +'</div>'
+   +'<div class="crit">'
+    +critRow('Stock',c.stock,true)
+    +critRow('Rotación',c.rot,true)
+    +critRow('Precio',c.precio,true)
+    +critRow('Título',c.titulo,false,p.mla,'titulo')
+    +critRow('Ficha técnica',c.desc,false,p.mla,'desc')
+    +critRow('Fotos',c.fotos,false,p.mla,'fotos')
+    +critRow('Clip / Video',c.clip,false,p.mla,'clip',true)
+   +'</div>'
+   +'<div class="notes">'
+    +'<div class="notes-head"><span>📝 Notas</span>'+(getNota(p.mla)?'<span class="has-note">●</span>':'')+'</div>'
+    +'<textarea class="note-ta" data-mla="'+p.mla+'" placeholder="Pendientes, observaciones, recordatorios…">'+esc(getNota(p.mla))+'</textarea>'
+   +'</div>'
+   +estBtns
+   +'</div>';
+}
+function filterRows(){
  let rows=DATA.slice();
  if(q){const s=q.toLowerCase();rows=rows.filter(p=>(p.mla+' '+p.titulo).toLowerCase().includes(s));}
  if(filterMode==='crit')rows=rows.filter(p=>p.score<50);
@@ -214,41 +308,61 @@ function render(){
  if(sortMode==='score-asc')rows.sort((a,b)=>a.score-b.score);
  else if(sortMode==='score-desc')rows.sort((a,b)=>b.score-a.score);
  else rows.sort((a,b)=>b.pending-a.pending||a.score-b.score);
+ return rows;
+}
+const COLS=[['prog','🔧 En progreso'],['sin','⚪ Sin empezar'],['opt','✅ Optimizadas']];
+function render(){
+ const rows=filterRows();
  $('#cnt').textContent=rows.length+' publicaciones';
+ // agrupar por estado
+ const byEst={sin:[],prog:[],opt:[]};
+ rows.forEach(p=>byEst[getEstado(p.mla)].push(p));
+ let html='';
+ for(const [key,label] of COLS){
+  const list=byEst[key];
+  html+='<div class="estsection est-section-'+key+'">'
+   +'<div class="estsection-head"><h3>'+label+'</h3><span class="estcount">'+list.length+'</span></div>';
+  if(list.length){
+   html+='<div class="grid">'+list.map(cardHTML).join('')+'</div>';
+  }else{
+   html+='<div class="estsection-empty">'+(key==='prog'?'Tocá “Empezar a trabajar” en una publicación para traerla acá.':key==='opt'?'Todavía no marcaste ninguna como optimizada.':'Nada pendiente acá.')+'</div>';
+  }
+  html+='</div>';
+ }
+ $('#grid').innerHTML=html;
  $('#empty').style.display=rows.length?'none':'block';
- $('#grid').innerHTML=rows.map(p=>{const c=p.crit;
-  return '<div class="card"><div class="top">'+ring(p.score)
-   +'<div class="meta"><div class="ttl">'+esc(p.titulo)+'</div>'
-   +'<div class="mla">'+p.mla+' <a class="mllink" href="'+p.link+'" target="_blank" rel="noopener" title="Abrir publicación en Mercado Libre">Ver en ML ↗</a></div>'
-   +'<div class="tags"><span class="tag '+(CAT(p.tramo)==='gx'?'gx':'')+'">'+FEEL[p.tramo]+'</span>'
-     +(p.pending?'<span class="tag" style="background:#fbe5e2;color:var(--red)">'+p.pending+' pendiente'+(p.pending>1?'s':'')+'</span>':'<span class="tag" style="background:#dcf0e6;color:var(--green)">revisado</span>')
-   +'</div></div></div>'
-   +'<div class="crit">'
-    +critRow('Stock',c.stock,true)
-    +critRow('Rotación',c.rot,true)
-    +critRow('Precio',c.precio,true)
-    +critRow('Título',c.titulo,false,p.mla,'titulo')
-    +critRow('Ficha técnica',c.desc,false,p.mla,'desc')
-    +critRow('Fotos',c.fotos,false,p.mla,'fotos')
-   +'</div>'
-   +'<div class="notes">'
-    +'<div class="notes-head"><span>📝 Notas</span>'+(getNota(p.mla)?'<span class="has-note">●</span>':'')+'</div>'
-    +'<textarea class="note-ta" data-mla="'+p.mla+'" placeholder="Pendientes, observaciones, recordatorios…">'+esc(getNota(p.mla))+'</textarea>'
-   +'</div>'
-   +'</div>';
- }).join('');
- // enganchar notas: guardar al salir del campo
+ wireCards();
+}
+function wireCards(){
  $$('.note-ta').forEach(t=>{
-  t.onblur=()=>{const mla=t.dataset.mla;const prev=getNota(mla);setNota(mla,t.value);
-   // si cambió de vacío<->lleno, refrescar el indicador sin re-render completo
-   const head=t.closest('.notes').querySelector('.notes-head');
-   const had=head.querySelector('.has-note');
+  t.onblur=()=>{const mla=t.dataset.mla;setNota(mla,t.value);
+   const head=t.closest('.notes').querySelector('.notes-head');const had=head.querySelector('.has-note');
    if(t.value.trim()&&!had){head.insertAdjacentHTML('beforeend','<span class="has-note">●</span>');}
-   else if(!t.value.trim()&&had){had.remove();}
-  };
+   else if(!t.value.trim()&&had){had.remove();}};
  });
- // enganchar clicks manuales
- $$('.c.manual').forEach(el=>el.onclick=()=>toggleChk(el.dataset.mla,el.dataset.key));
+ $$('.c.manual').forEach(el=>el.onclick=()=>toggleChkInPlace(el));
+ $$('.estbtn').forEach(b=>b.onclick=()=>setEstado(b.dataset.mla,b.dataset.to));
+ $$('.focusbtn').forEach(b=>b.onclick=()=>openFocus(b.dataset.mla));
+}
+// tildar SIN re-render global: actualiza solo la tarjeta in-place (no se mueve)
+function toggleChkInPlace(el){
+ const mla=el.dataset.mla,key=el.dataset.key;
+ const c=getChk(mla);c[key]=!c[key];CHECKS[mla]=c;saveChecks();
+ compute();
+ const p=DATA.find(x=>x.mla===mla);
+ // actualizar visualmente la celda y el anillo de ESTA tarjeta, sin tocar el orden
+ el.classList.toggle('done',c[key]);
+ el.querySelector('.chk').textContent=c[key]?'✓':'';
+ const card=el.closest('.card');
+ if(card&&p){
+  const sw=card.querySelector('.scorewrap');if(sw)sw.outerHTML=ring(p.score);
+  const tagWrap=card.querySelector('.tags');
+  if(tagWrap){const pendTag=tagWrap.querySelector('.tag:last-child');
+   if(pendTag)pendTag.outerHTML=(p.pending?'<span class="tag" style="background:#fbe5e2;color:var(--red)">'+p.pending+' pendiente'+(p.pending>1?'s':'')+'</span>':'<span class="tag" style="background:#dcf0e6;color:var(--green)">todo tildado</span>');}
+ }
+ // si hay un panel de foco abierto para este mla, refrescarlo
+ if(FOCUS===mla)renderFocus();
+ renderHero();
 }
 function renderHero(){
  const n=DATA.length;
@@ -261,8 +375,30 @@ function renderHero(){
    st(avg>=80?'green':avg>=50?'amber':'red','Salud promedio',avg+'<span style="font-size:15px;color:var(--mut)">/100</span>',n+' publicaciones')
   +st('green','Óptimas',fmt(optimos),'≥80 de salud')
   +st(crit?'red':'green','Críticas',fmt(crit),'<50 de salud')
-  +st(pend?'amber':'green','Revisiones pendientes',fmt(pend),'títulos/fichas/fotos sin tildar')
-  +st('purple','Catálogo cubierto',n?Math.round((n-DATA.filter(p=>p.pending===3).length)/n*100)+'%':'0%','con al menos 1 check');
+  +st(pend?'amber':'green','Revisiones pendientes',fmt(pend),'título/ficha/fotos/clip sin tildar')
+  +st('purple','Catálogo cubierto',n?Math.round((n-DATA.filter(p=>p.pending===4).length)/n*100)+'%':'0%','con al menos 1 check');
+}
+
+// ===== MODO FOCO =====
+let FOCUS=null;
+function openFocus(mla){FOCUS=mla;renderFocus();document.body.style.overflow='hidden';}
+function closeFocus(){FOCUS=null;$('#focusLayer').style.display='none';document.body.style.overflow='';render();}
+function renderFocus(){
+ const p=DATA.find(x=>x.mla===FOCUS);if(!p)return;
+ const layer=$('#focusLayer');layer.style.display='flex';
+ $('#focusCard').innerHTML=cardHTML(p);
+ // re-enganchar handlers dentro del foco
+ const fc=$('#focusCard');
+ fc.querySelectorAll('.c.manual').forEach(el=>el.onclick=()=>toggleChkInPlace(el));
+ fc.querySelectorAll('.estbtn').forEach(b=>b.onclick=()=>{setEstado(b.dataset.mla,b.dataset.to);renderFocus();});
+ fc.querySelectorAll('.focusbtn').forEach(b=>b.remove()); // no hace falta dentro del foco
+ fc.querySelectorAll('.note-ta').forEach(t=>{t.onblur=()=>{setNota(t.dataset.mla,t.value);};});
+ // navegación: anterior/siguiente dentro del orden actual
+ const rows=filterRows();const idx=rows.findIndex(x=>x.mla===FOCUS);
+ $('#focusPos').textContent=(idx+1)+' / '+rows.length;
+ $('#focusPrev').disabled=idx<=0;$('#focusNext').disabled=idx>=rows.length-1;
+ $('#focusPrev').onclick=()=>{if(idx>0){FOCUS=rows[idx-1].mla;renderFocus();}};
+ $('#focusNext').onclick=()=>{if(idx<rows.length-1){FOCUS=rows[idx+1].mla;renderFocus();}};
 }
 
 function setState(cls,txt){$('#dot').className='dot '+cls;$('#stateTxt').textContent=txt;}
@@ -277,6 +413,11 @@ $('#btnReload').onclick=load;
 $('#search').oninput=e=>{q=e.target.value;render();};
 $$('#sortSeg button').forEach(b=>b.onclick=()=>{$$('#sortSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');sortMode=b.dataset.s;render();});
 $$('#filterSeg button').forEach(b=>b.onclick=()=>{$$('#filterSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');filterMode=b.dataset.f;render();});
+$('#focusClose').onclick=closeFocus;
+$('#focusLayer').onclick=e=>{if(e.target.id==='focusLayer')closeFocus();};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&FOCUS)closeFocus();
+ if(FOCUS&&e.key==='ArrowRight'){$('#focusNext').click();}
+ if(FOCUS&&e.key==='ArrowLeft'){$('#focusPrev').click();}});
 load();
 </script>
 </body></html>
