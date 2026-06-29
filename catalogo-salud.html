@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<!-- VERSION catalogo v1-1503 -->
+<html lang="es"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salud del Catálogo · Ganga Home</title>
+<style>
+:root{--ink:#13211d;--bg:#f4f2ea;--card:#fff;--line:#e3ded0;--mut:#7a7565;
+--red:#d83a2b;--amber:#e0a008;--green:#1f8a5b;--blue:#2563c9;--accent:#e8552d;--purple:#7c5cbf;
+--sh:0 1px 2px rgba(19,33,29,.04),0 6px 20px rgba(19,33,29,.06)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.45}
+.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,Consolas,monospace}
+.app{max-width:1340px;margin:0 auto;padding:0 18px 70px}
+header{background:var(--ink);color:#f1ede1;padding:15px 0}
+header .in{max-width:1340px;margin:0 auto;padding:0 18px;display:flex;align-items:center;gap:14px}
+header b{font-size:16px}header span.sub{font-size:11px;color:#9bb0a6;text-transform:uppercase;letter-spacing:2px}
+.spacer{flex:1}
+.statepill{font-size:11.5px;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.09);color:#cfe0d7;display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.12)}
+.dot{width:7px;height:7px;border-radius:50%;background:#9bb0a6}.dot.live{background:var(--green)}.dot.err{background:var(--red)}.dot.load{background:var(--amber)}
+button{font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border-radius:8px;padding:8px 14px;border:1px solid var(--line);background:var(--card);color:var(--ink);transition:.12s}
+button:hover{box-shadow:var(--sh)}button.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
+.topbtn{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.18)}
+
+.hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:22px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:15px 16px;box-shadow:var(--sh);position:relative;overflow:hidden}
+.stat .l{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--mut)}
+.stat .v{font-size:27px;font-weight:750;margin-top:5px;line-height:1}
+.stat .s{font-size:12px;color:var(--mut);margin-top:3px}
+.stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--blue)}
+.stat.red::before{background:var(--red)}.stat.amber::before{background:var(--amber)}.stat.green::before{background:var(--green)}.stat.purple::before{background:var(--purple)}
+
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 16px}
+.toolbar input[type=search]{border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-family:inherit;font-size:13px;min-width:240px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--card)}
+.seg button{border:none;border-radius:0;padding:9px 13px;font-size:12.5px}
+.seg button.on{background:var(--ink);color:#fff}
+.cnt{font-size:12.5px;color:var(--mut)}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh);overflow:hidden;display:flex;flex-direction:column}
+.card .top{display:flex;gap:12px;padding:14px 15px 10px}
+.scorewrap{flex-shrink:0;width:58px;height:58px;position:relative}
+.scorewrap svg{transform:rotate(-90deg)}
+.scorewrap .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:750}
+.card .meta{min-width:0;flex:1}
+.card .ttl{font-size:13px;font-weight:650;line-height:1.3;max-height:2.6em;overflow:hidden}
+.card .mla{font-size:11px;color:var(--mut);font-family:ui-monospace,monospace;margin-top:3px}
+.mllink{font-family:Inter,sans-serif;color:var(--blue);text-decoration:none;font-weight:600;font-size:10.5px;margin-left:6px;white-space:nowrap}
+.mllink:hover{text-decoration:underline}
+.card .tags{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#ece6d4;color:var(--mut)}
+.tag.gx{background:#efe2da;color:#a3502d}
+.crit{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border-top:1px solid var(--line)}
+.crit .c{background:var(--card);padding:9px 12px;display:flex;align-items:center;gap:8px;font-size:12px;cursor:default}
+.crit .c.manual{cursor:pointer;user-select:none}
+.crit .c.manual:hover{background:#faf8f1}
+.ind{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--line)}
+.ind.g{background:var(--green)}.ind.a{background:var(--amber)}.ind.r{background:var(--red)}
+.crit .c .lbl{flex:1;color:var(--ink)}
+.crit .c .val{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
+.crit .c.manual.done .lbl{color:var(--green);font-weight:600}
+.crit .c .chk{width:16px;height:16px;border:1.5px solid var(--line);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff}
+.crit .c.manual.done .chk{background:var(--green);border-color:var(--green)}
+.auto-badge{font-size:9px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+.notes{padding:10px 13px 12px;border-top:1px solid var(--line);background:#fcfbf6}
+.notes-head{font-size:11px;color:var(--mut);font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.notes-head .has-note{color:var(--accent);font-size:9px}
+.note-ta{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-family:inherit;font-size:12px;resize:vertical;min-height:38px;background:var(--card);color:var(--ink);line-height:1.4}
+.note-ta:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,201,.1)}
+
+.empty{padding:60px 20px;text-align:center;color:var(--mut)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--mut);margin:0 0 14px;align-items:center}
+.legend .li{display:flex;align-items:center;gap:6px}
+@media(max-width:520px){.grid{grid-template-columns:1fr}}
+</style></head>
+<body>
+<header><div class="in">
+  <div><b>Salud del Catálogo</b><br><span class="sub">Ganga Home · v1-1503</span></div>
+  <div class="spacer"></div>
+  <span class="statepill"><span class="dot" id="dot"></span><span id="stateTxt">Cargando…</span></span>
+  <button class="topbtn" id="btnReload">↻ Actualizar</button>
+</div></header>
+
+<div class="app">
+  <div class="hero" id="hero"></div>
+
+  <div class="legend">
+    <span class="li"><span class="ind g"></span>Óptimo</span>
+    <span class="li"><span class="ind a"></span>Mejorable</span>
+    <span class="li"><span class="ind r"></span>Atención</span>
+    <span style="margin-left:auto" class="auto-badge">● auto = se evalúa con datos · ○ tildás vos lo manual</span>
+  </div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Buscar MLA o título…">
+    <div class="seg" id="sortSeg">
+      <button class="on" data-s="score-asc">Peor salud primero</button>
+      <button data-s="score-desc">Mejor primero</button>
+      <button data-s="pending">Más pendientes</button>
+    </div>
+    <div class="seg" id="filterSeg">
+      <button class="on" data-f="all">Todos</button>
+      <button data-f="crit">Críticos &lt;50</button>
+      <button data-f="manual">Falta revisar</button>
+      <button data-f="notas">Con notas</button>
+    </div>
+    <span class="cnt" id="cnt"></span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none">Sin resultados.</div>
+</div>
+
+<script>
+const MLAMAP={"MLA3246034598":{"tr":"med","c":0},"MLA1768307491":{"tr":"gra","c":0},"MLA3246020812":{"tr":"med","c":0},"MLA1768294541":{"tr":"gra","c":0},"MLA1711171603":{"tr":"med","c":0},"MLA3246022032":{"tr":"med","c":0},"MLA3159437138":{"tr":"med","c":196},"MLA3246022922":{"tr":"med","c":59},"MLA1768179053":{"tr":"med","c":110},"MLA3244572268":{"tr":"med","c":337},"MLA3159311604":{"tr":"med","c":0},"MLA3322778996":{"tr":"gra","c":0},"MLA1788705647":{"tr":"med","c":0},"MLA1774782137":{"tr":"gra","c":0},"MLA3271061220":{"tr":"gra","c":0},"MLA3270689092":{"tr":"gra","c":0},"MLA1768204631":{"tr":"med","c":0},"MLA3298857798":{"tr":"med","c":0},"MLA3249129958":{"tr":"med","c":0},"MLA3270650616":{"tr":"gra","c":0},"MLA3389383882":{"tr":"gra","c":0},"MLA3270687808":{"tr":"gra","c":0},"MLA3389358642":{"tr":"gra","c":0},"MLA1809102557":{"tr":"gra","c":0},"MLA1789728011":{"tr":"med","c":0},"MLA3244605122":{"tr":"med","c":0},"MLA3298808068":{"tr":"med","c":0},"MLA3298783072":{"tr":"med","c":0},"MLA1805810585":{"tr":"med","c":0},"MLA3389406162":{"tr":"med","c":0},"MLA3270687810":{"tr":"gra","c":0},"MLA3270690382":{"tr":"gra","c":0},"MLA3244588762":{"tr":"med","c":0},"MLA1789713373":{"tr":"gra","c":0},"MLA1789700345":{"tr":"gra","c":0},"MLA1789739773":{"tr":"gra","c":0},"MLA1789726789":{"tr":"gra","c":0},"MLA3377568870":{"tr":"med","c":0},"MLA1768066557":{"tr":"med","c":0},"MLA1767915743":{"tr":"med","c":0},"MLA1768190227":{"tr":"med","c":0},"MLA3271108928":{"tr":"gra","c":0},"MLA1768091185":{"tr":"med","c":0},"MLA1769195663":{"tr":"gra","c":0},"MLA3158565506":{"tr":"med","c":0},"MLA3271095814":{"tr":"gra","c":0},"MLA3271095812":{"tr":"gra","c":0},"MLA1767872427":{"tr":"med","c":0},"MLA3270690384":{"tr":"gra","c":0},"MLA1762968975":{"tr":"med","c":0},"MLA3201550052":{"tr":"med","c":0},"MLA3230426750":{"tr":"med","c":0},"MLA1789721657":{"tr":"gra","c":0},"MLA3204808734":{"tr":"med","c":0},"MLA1767874383":{"tr":"med","c":0},"MLA1788705643":{"tr":"med","c":180},"MLA1788705645":{"tr":"med","c":0},"MLA3270560232":{"tr":"gra","c":0},"MLA3245995062":{"tr":"med","c":0},"MLA1768060811":{"tr":"med","c":0},"MLA3389359638":{"tr":"gra","c":0},"MLA1789738641":{"tr":"gra","c":0},"MLA3415824240":{"tr":"med","c":0},"MLA1768086145":{"tr":"med","c":0},"MLA3244576224":{"tr":"med","c":0},"MLA1816492499":{"tr":"med","c":0},"MLA1788697217":{"tr":"med","c":20},"MLA3223338460":{"tr":"peq","c":0},"MLA3389358432":{"tr":"gra","c":0},"MLA3389358644":{"tr":"gra","c":75},"MLA1809103709":{"tr":"gra","c":0},"MLA1767900033":{"tr":"med","c":0},"MLA1807442257":{"tr":"med","c":0},"MLA3389403552":{"tr":"peq","c":150},"MLA1768204633":{"tr":"med","c":0},"MLA3249142326":{"tr":"med","c":0},"MLA3389384352":{"tr":"gra","c":0},"MLA3230386188":{"tr":"med","c":0},"MLA1768092257":{"tr":"med","c":0},"MLA1751875291":{"tr":"gra","c":0},"MLA1789708941":{"tr":"gra","c":0},"MLA3223347114":{"tr":"med","c":0},"MLA3377581630":{"tr":"med","c":0},"MLA1816576987":{"tr":"peq","c":0},"MLA1768280721":{"tr":"gra","c":0},"MLA3271101748":{"tr":"gra","c":0},"MLA3249117184":{"tr":"med","c":0},"MLA3244594690":{"tr":"med","c":0},"MLA1768078229":{"tr":"med","c":0},"MLA3202828986":{"tr":"med","c":0},"MLA1805793523":{"tr":"med","c":0},"MLA1807278939":{"tr":"med","c":0},"MLA1807387763":{"tr":"gra","c":0},"MLA3249129960":{"tr":"med","c":0},"MLA1807438233":{"tr":"gra","c":0},"MLA1809103469":{"tr":"gra","c":0},"MLA3271093636":{"tr":"gra","c":0},"MLA1807328547":{"tr":"gra","c":140},"MLA3073410096":{"tr":"med","c":100},"MLA1768092255":{"tr":"med","c":0},"MLA3389404236":{"tr":"peq","c":150},"MLA3378135584":{"tr":"med","c":0},"MLA1805810583":{"tr":"med","c":0},"MLA3377581628":{"tr":"med","c":142},"MLA3378135586":{"tr":"med","c":0},"MLA1767890187":{"tr":"med","c":0},"MLA1762957875":{"tr":"med","c":0},"MLA3073565310":{"tr":"med","c":56},"MLA3271108100":{"tr":"gra","c":0},"MLA3204808260":{"tr":"med","c":0},"MLA1809110231":{"tr":"med","c":150},"MLA1751705901":{"tr":"med","c":45},"MLA1774798019":{"tr":"gra","c":0},"MLA3414496118":{"tr":"med","c":0},"MLA3377555692":{"tr":"med","c":0},"MLA1789734419":{"tr":"gra","c":0},"MLA1767872425":{"tr":"med","c":0},"MLA3230424976":{"tr":"med","c":0},"MLA1817707789":{"tr":"peq","c":0},"MLA1751705525":{"tr":"med","c":0},"MLA1774785949":{"tr":"gra","c":0},"MLA3246022924":{"tr":"med","c":76},"MLA1788847635":{"tr":"med","c":0},"MLA3246029426":{"tr":"gra","c":0},"MLA1799469995":{"tr":"med","c":0},"MLA1802569707":{"tr":"med","c":0},"MLA3271111090":{"tr":"gra","c":0},"MLA1768078223":{"tr":"med","c":64},"MLA1768194895":{"tr":"med","c":0},"MLA1774799633":{"tr":"xl","c":0},"MLA1768047827":{"tr":"med","c":28},"MLA3278817132":{"tr":"med","c":200},"MLA1768220355":{"tr":"med","c":0},"MLA3073404068":{"tr":"med","c":502},"MLA1768181959":{"tr":"med","c":0},"MLA3271110296":{"tr":"gra","c":80},"MLA1768215895":{"tr":"med","c":0},"MLA1789699791":{"tr":"gra","c":0},"MLA3278829374":{"tr":"med","c":0},"MLA3271050104":{"tr":"gra","c":0},"MLA1789739771":{"tr":"gra","c":0},"MLA1769236053":{"tr":"gra","c":0},"MLA3271108930":{"tr":"gra","c":0},"MLA1769209451":{"tr":"gra","c":0},"MLA3271093638":{"tr":"gra","c":0},"MLA1774823001":{"tr":"gra","c":0},"MLA3230425182":{"tr":"med","c":0},"MLA3278698334":{"tr":"med","c":0},"MLA3271050106":{"tr":"gra","c":0},"MLA3382493970":{"tr":"med","c":0},"MLA1751847165":{"tr":"gra","c":0},"MLA3244582134":{"tr":"med","c":0},"MLA3414490412":{"tr":"med","c":0},"MLA1774822587":{"tr":"xl","c":0},"MLA3271059832":{"tr":"gra","c":0},"MLA1805768443":{"tr":"med","c":0},"MLA3271098864":{"tr":"gra","c":0},"MLA1807291751":{"tr":"med","c":0},"MLA1807278941":{"tr":"med","c":0},"MLA1769235781":{"tr":"gra","c":0},"MLA1769209455":{"tr":"gra","c":0},"MLA3230424784":{"tr":"med","c":0},"MLA3389740556":{"tr":"med","c":0},"MLA1805806405":{"tr":"med","c":0},"MLA1762963853":{"tr":"med","c":0},"MLA3230387324":{"tr":"med","c":0},"MLA3271052214":{"tr":"gra","c":0},"MLA3377586870":{"tr":"med","c":0},"MLA3271094860":{"tr":"gra","c":0},"MLA3232150344":{"tr":"med","c":0},"MLA1751839149":{"tr":"med","c":0},"MLA1774831879":{"tr":"gra","c":0},"MLA1751878389":{"tr":"peq","c":0},"MLA3223352268":{"tr":"med","c":0},"MLA1769234459":{"tr":"gra","c":0},"MLA1816507397":{"tr":"med","c":0},"MLA1805793525":{"tr":"med","c":0},"MLA3414517850":{"tr":"med","c":0},"MLA1789734053":{"tr":"med","c":0},"MLA3315289332":{"tr":"med","c":0},"MLA1769196255":{"tr":"gra","c":0},"MLA3414462600":{"tr":"med","c":0},"MLA3323445698":{"tr":"gra","c":0},"MLA1788878891":{"tr":"gra","c":0},"MLA3201692064":{"tr":"med","c":0},"MLA1774821543":{"tr":"gra","c":0},"MLA1789721349":{"tr":"gra","c":0},"MLA1762933831":{"tr":"med","c":0},"MLA1809112967":{"tr":"peq","c":0},"MLA1789695883":{"tr":"gra","c":0},"MLA1788882145":{"tr":"gra","c":0},"MLA1789734051":{"tr":"gra","c":0},"MLA3409742698":{"tr":"med","c":0},"MLA3200533316":{"tr":"med","c":0},"MLA1817423457":{"tr":"peq","c":0},"MLA1814218927":{"tr":"med","c":0},"MLA1831482995":{"tr":"gra","c":4},"MLA3475617972":{"tr":"med","c":0},"MLA1842440137":{"tr":"med","c":0},"MLA1831457613":{"tr":"gra","c":0},"MLA3475619340":{"tr":"med","c":0},"MLA1814251597":{"tr":"med","c":0},"MLA1789713375":{"tr":"gra","c":0},"MLA1814225819":{"tr":"med","c":0},"MLA3475729982":{"tr":"med","c":0},"MLA3389738704":{"tr":"med","c":0},"MLA3475731286":{"tr":"med","c":0},"MLA1807316293":{"tr":"med","c":0},"MLA3408264990":{"tr":"med","c":0},"MLA3409755452":{"tr":"med","c":0},"MLA1829431195":{"tr":"med","c":0},"MLA1783932979":{"tr":"xl","c":0},"MLA1814218929":{"tr":"med","c":600},"MLA3480587906":{"tr":"med","c":0},"MLA3475617970":{"tr":"med","c":8},"MLA3409742696":{"tr":"med","c":0},"MLA1818395901":{"tr":"med","c":0},"MLA3249111944":{"tr":"peq","c":0},"MLA3389992530":{"tr":"med","c":0},"MLA3409768380":{"tr":"med","c":0},"MLA3389743552":{"tr":"med","c":0},"MLA3409679554":{"tr":"med","c":0},"MLA1845386401":{"tr":"med","c":0},"MLA3480594870":{"tr":"med","c":143},"MLA3073652180":{"tr":"med","c":0},"MLA3159359702":{"tr":"med","c":0},"MLA1768203041":{"tr":"med","c":0},"MLA3249124670":{"tr":"peq","c":0},"MLA3249137116":{"tr":"peq","c":0},"MLA1789708215":{"tr":"gra","c":0},"MLA1789699793":{"tr":"gra","c":0},"MLA3414490422":{"tr":"med","c":0},"MLA3414515796":{"tr":"med","c":0},"MLA3414477524":{"tr":"med","c":0},"MLA3415832336":{"tr":"med","c":0},"MLA1814238985":{"tr":"med","c":0},"MLA3414477522":{"tr":"med","c":0},"MLA3414515794":{"tr":"med","c":0},"MLA3414515792":{"tr":"med","c":0},"MLA1751838589":{"tr":"med","c":0},"MLA1751838927":{"tr":"gra","c":0},"MLA3244579582":{"tr":"med","c":0},"MLA1768319825":{"tr":"gra","c":0},"MLA1769195089":{"tr":"gra","c":0},"MLA1769233943":{"tr":"gra","c":0},"MLA1769207879":{"tr":"gra","c":0},"MLA1769195635":{"tr":"med","c":0},"MLA1769196053":{"tr":"xl","c":0},"MLA1769196051":{"tr":"xl","c":0},"MLA1769208739":{"tr":"xl","c":0},"MLA1769209453":{"tr":"xl","c":0},"MLA1769184083":{"tr":"xl","c":0},"MLA1769184537":{"tr":"gra","c":0},"MLA3244576226":{"tr":"med","c":0},"MLA3244579580":{"tr":"med","c":0},"MLA3244594692":{"tr":"gra","c":0},"MLA3271058092":{"tr":"xl","c":0},"MLA3246041804":{"tr":"xl","c":0},"MLA1769233945":{"tr":"gra","c":0},"MLA1769196253":{"tr":"med","c":0},"MLA1769235779":{"tr":"gra","c":0},"MLA3315341964":{"tr":"gra","c":0},"MLA3322911430":{"tr":"gra","c":0},"MLA1788853241":{"tr":"gra","c":0},"MLA1788855665":{"tr":"xl","c":0},"MLA3298858114":{"tr":"gra","c":0},"MLA1788853239":{"tr":"gra","c":0},"MLA1788887839":{"tr":"xl","c":0},"MLA1788855663":{"tr":"xl","c":0},"MLA1789721347":{"tr":"gra","c":0},"MLA1789735529":{"tr":"gra","c":0},"MLA1789696657":{"tr":"gra","c":0},"MLA1789735531":{"tr":"gra","c":0},"MLA3415983658":{"tr":"med","c":0},"MLA1814214151":{"tr":"med","c":600},"MLA3433933522":{"tr":"med","c":0},"MLA3433946442":{"tr":"med","c":0},"MLA1823777449":{"tr":"med","c":0},"MLA3433946444":{"tr":"med","c":0},"MLA3480605926":{"tr":"med","c":144},"MLA3480621004":{"tr":"med","c":144},"MLA3480608044":{"tr":"med","c":144},"MLA1846839547":{"tr":"med","c":360},"MLA3230388532":{"tr":"peq","c":0},"MLA3230401070":{"tr":"med","c":0}};
+const SUPA={url:'https://slfmkdtsksjatcfcfvgl.supabase.co/rest/v1',key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsZm1rZHRza3NqYXRjZmNmdmdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNDMzNzgsImV4cCI6MjA5NTkxOTM3OH0.uKRquNgMXvLo2ZYGWm1ZE2WOwjeYDk_zo4cd92J2rXc',
+ hdr(){return{apikey:this.key,Authorization:'Bearer '+this.key}},
+ async page(path,qs){let rows=[],off=0,sz=1000,tot=Infinity;
+  while(off<tot){const r=await fetch(this.url+path+'?'+(qs||'')+(qs?'&':'')+'offset='+off+'&limit='+sz,{headers:{...this.hdr(),Prefer:'count=exact',Range:off+'-'+(off+sz-1)}});
+   if(!r.ok)throw new Error('Supabase '+r.status);const cr=r.headers.get('content-range');if(cr){const t=+cr.split('/')[1];if(!isNaN(t))tot=t;}
+   const d=await r.json();rows=rows.concat(d);if(d.length<sz)break;off+=sz;}return rows;},
+ async load(){
+  const now=Date.now();
+  const since=new Date(now-30*864e5).toISOString().slice(0,10);
+  const prods=await this.page('/productos','select=id,titulo,stock,precio,estado,permalink&estado=eq.active');
+  const ventas=await this.page('/ventas','select=producto_id,cantidad&estado=eq.paid&fecha=gte.'+since);
+  const v30={};for(const v of ventas){if(v.producto_id)v30[v.producto_id]=(v30[v.producto_id]||0)+(+v.cantidad||0);}
+  return prods.map(p=>{const m=MLAMAP[p.id]||{};const precio=+p.precio||0;
+   const tr=m.tr||(precio>120000?'gra':precio<8000?'peq':'med');
+   const sold=v30[p.id]||0;
+   // link: usar permalink real; si falta, construir desde MLA con formato correcto
+   const link=p.permalink||('https://articulo.mercadolibre.com.ar/'+p.id.slice(0,3)+'-'+p.id.slice(3));
+   return{mla:p.id,titulo:p.titulo||'',stock:Math.max(0,+p.stock||0),precio,vd:sold/30,v30:sold,tramo:tr,link};});
+ }};
+const FEEL={peq:'Peq',med:'Med',gra:'Gra',xl:'XL'};
+const CAT=t=>(t==='peq'||t==='med')?'pm':'gx';
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const fmt=(n,d=0)=>(n==null||isNaN(n))?'—':n.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc=s=>(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+let DATA=[];
+
+// ===== checks manuales persistentes =====
+const MK='gh_catalogo_checks_v1';
+let CHECKS={}; // {mla:{titulo:bool,desc:bool,fotos:bool}}
+try{const r=localStorage.getItem(MK);if(r)CHECKS=JSON.parse(r);}catch(e){}
+const saveChecks=()=>{try{localStorage.setItem(MK,JSON.stringify(CHECKS))}catch(e){}};
+function getChk(mla){return CHECKS[mla]||{titulo:false,desc:false,fotos:false};}
+function toggleChk(mla,key){const c=getChk(mla);c[key]=!c[key];CHECKS[mla]=c;saveChecks();compute();render();}
+
+// ===== notas/comentarios por publicación (persistentes) =====
+const NK='gh_catalogo_notas_v1';
+let NOTAS={}; // {mla:"texto"}
+try{const r=localStorage.getItem(NK);if(r)NOTAS=JSON.parse(r);}catch(e){}
+const saveNotas=()=>{try{localStorage.setItem(NK,JSON.stringify(NOTAS))}catch(e){}};
+function getNota(mla){return NOTAS[mla]||'';}
+function setNota(mla,txt){if(txt&&txt.trim()){NOTAS[mla]=txt;}else{delete NOTAS[mla];}saveNotas();}
+
+// ===== evaluación de criterios =====
+// cada criterio devuelve {state:'g'|'a'|'r', val:'texto', pts:0..1}
+function evalStock(p){
+ const cover=p.vd>0?p.stock/p.vd:(p.stock>0?999:0);
+ if(p.stock<=0)return{state:'r',val:'sin stock',pts:0};
+ if(cover<7)return{state:'a',val:fmt(cover,0)+'d cobertura',pts:.5};
+ if(cover>90)return{state:'a',val:'excedente '+fmt(cover,0)+'d',pts:.6};
+ return{state:'g',val:fmt(p.stock)+' u · '+fmt(cover,0)+'d',pts:1};
+}
+function evalRot(p){
+ if(p.v30<=0)return{state:'r',val:'sin ventas 30d',pts:0};
+ if(p.v30<3)return{state:'a',val:fmt(p.v30)+' u/mes',pts:.5};
+ return{state:'g',val:fmt(p.v30)+' u/mes',pts:1};
+}
+function evalPrecio(p){
+ if(p.precio<=0)return{state:'r',val:'sin precio',pts:0};
+ return{state:'g',val:'$'+fmt(p.precio),pts:1};
+}
+function compute(){
+ DATA.forEach(p=>{
+  const c=getChk(p.mla);
+  const stock=evalStock(p),rot=evalRot(p),precio=evalPrecio(p);
+  // manuales: hecho=1, sin hacer=0 (rojo si no, verde si sí)
+  const man=k=>({state:c[k]?'g':'r',val:c[k]?'✓ revisado':'pendiente',pts:c[k]?1:0,done:c[k]});
+  const titulo=man('titulo'),desc=man('desc'),fotos=man('fotos');
+  p.crit={stock,rot,precio,titulo,desc,fotos};
+  const all=[stock,rot,precio,titulo,desc,fotos];
+  p.score=Math.round(all.reduce((a,x)=>a+x.pts,0)/all.length*100);
+  p.pending=[titulo,desc,fotos].filter(x=>!x.done).length;
+ });
+}
+
+// ===== render =====
+function scoreColor(s){return s>=80?'var(--green)':s>=50?'var(--amber)':'var(--red)';}
+function ring(score){
+ const r=24,c=2*Math.PI*r,off=c*(1-score/100);
+ return '<div class="scorewrap"><svg width="58" height="58" viewBox="0 0 58 58">'
+  +'<circle cx="29" cy="29" r="'+r+'" fill="none" stroke="#ece6d4" stroke-width="5"/>'
+  +'<circle cx="29" cy="29" r="'+r+'" fill="none" stroke="'+scoreColor(score)+'" stroke-width="5" stroke-linecap="round" stroke-dasharray="'+c.toFixed(1)+'" stroke-dashoffset="'+off.toFixed(1)+'"/>'
+  +'</svg><div class="num" style="color:'+scoreColor(score)+'">'+score+'</div></div>';
+}
+function critRow(label,r,auto,mla,key){
+ if(auto){
+  return '<div class="c"><span class="ind '+r.state+'"></span><span class="lbl">'+label+'</span><span class="val">'+r.val+'</span></div>';
+ }
+ // manual: clickeable
+ return '<div class="c manual'+(r.done?' done':'')+'" data-mla="'+mla+'" data-key="'+key+'">'
+  +'<span class="chk">'+(r.done?'✓':'')+'</span><span class="lbl">'+label+'</span></div>';
+}
+let sortMode='score-asc',filterMode='all',q='';
+function render(){
+ let rows=DATA.slice();
+ if(q){const s=q.toLowerCase();rows=rows.filter(p=>(p.mla+' '+p.titulo).toLowerCase().includes(s));}
+ if(filterMode==='crit')rows=rows.filter(p=>p.score<50);
+ if(filterMode==='manual')rows=rows.filter(p=>p.pending>0);
+ if(filterMode==='notas')rows=rows.filter(p=>getNota(p.mla).trim());
+ if(sortMode==='score-asc')rows.sort((a,b)=>a.score-b.score);
+ else if(sortMode==='score-desc')rows.sort((a,b)=>b.score-a.score);
+ else rows.sort((a,b)=>b.pending-a.pending||a.score-b.score);
+ $('#cnt').textContent=rows.length+' publicaciones';
+ $('#empty').style.display=rows.length?'none':'block';
+ $('#grid').innerHTML=rows.map(p=>{const c=p.crit;
+  return '<div class="card"><div class="top">'+ring(p.score)
+   +'<div class="meta"><div class="ttl">'+esc(p.titulo)+'</div>'
+   +'<div class="mla">'+p.mla+' <a class="mllink" href="'+p.link+'" target="_blank" rel="noopener" title="Abrir publicación en Mercado Libre">Ver en ML ↗</a></div>'
+   +'<div class="tags"><span class="tag '+(CAT(p.tramo)==='gx'?'gx':'')+'">'+FEEL[p.tramo]+'</span>'
+     +(p.pending?'<span class="tag" style="background:#fbe5e2;color:var(--red)">'+p.pending+' pendiente'+(p.pending>1?'s':'')+'</span>':'<span class="tag" style="background:#dcf0e6;color:var(--green)">revisado</span>')
+   +'</div></div></div>'
+   +'<div class="crit">'
+    +critRow('Stock',c.stock,true)
+    +critRow('Rotación',c.rot,true)
+    +critRow('Precio',c.precio,true)
+    +critRow('Título',c.titulo,false,p.mla,'titulo')
+    +critRow('Ficha técnica',c.desc,false,p.mla,'desc')
+    +critRow('Fotos',c.fotos,false,p.mla,'fotos')
+   +'</div>'
+   +'<div class="notes">'
+    +'<div class="notes-head"><span>📝 Notas</span>'+(getNota(p.mla)?'<span class="has-note">●</span>':'')+'</div>'
+    +'<textarea class="note-ta" data-mla="'+p.mla+'" placeholder="Pendientes, observaciones, recordatorios…">'+esc(getNota(p.mla))+'</textarea>'
+   +'</div>'
+   +'</div>';
+ }).join('');
+ // enganchar notas: guardar al salir del campo
+ $$('.note-ta').forEach(t=>{
+  t.onblur=()=>{const mla=t.dataset.mla;const prev=getNota(mla);setNota(mla,t.value);
+   // si cambió de vacío<->lleno, refrescar el indicador sin re-render completo
+   const head=t.closest('.notes').querySelector('.notes-head');
+   const had=head.querySelector('.has-note');
+   if(t.value.trim()&&!had){head.insertAdjacentHTML('beforeend','<span class="has-note">●</span>');}
+   else if(!t.value.trim()&&had){had.remove();}
+  };
+ });
+ // enganchar clicks manuales
+ $$('.c.manual').forEach(el=>el.onclick=()=>toggleChk(el.dataset.mla,el.dataset.key));
+}
+function renderHero(){
+ const n=DATA.length;
+ const avg=n?Math.round(DATA.reduce((a,p)=>a+p.score,0)/n):0;
+ const crit=DATA.filter(p=>p.score<50).length;
+ const pend=DATA.reduce((a,p)=>a+p.pending,0);
+ const optimos=DATA.filter(p=>p.score>=80).length;
+ const st=(c,l,v,s)=>'<div class="stat '+c+'"><div class="l">'+l+'</div><div class="v">'+v+'</div><div class="s">'+s+'</div></div>';
+ $('#hero').innerHTML=
+   st(avg>=80?'green':avg>=50?'amber':'red','Salud promedio',avg+'<span style="font-size:15px;color:var(--mut)">/100</span>',n+' publicaciones')
+  +st('green','Óptimas',fmt(optimos),'≥80 de salud')
+  +st(crit?'red':'green','Críticas',fmt(crit),'<50 de salud')
+  +st(pend?'amber':'green','Revisiones pendientes',fmt(pend),'títulos/fichas/fotos sin tildar')
+  +st('purple','Catálogo cubierto',n?Math.round((n-DATA.filter(p=>p.pending===3).length)/n*100)+'%':'0%','con al menos 1 check');
+}
+
+function setState(cls,txt){$('#dot').className='dot '+cls;$('#stateTxt').textContent=txt;}
+async function load(){
+ setState('load','Conectando…');$('#btnReload').disabled=true;
+ try{DATA=await SUPA.load();compute();renderHero();render();
+  setState('live',DATA.length+' publicaciones activas');
+ }catch(e){setState('err','Error: '+e.message);alert('No pude leer Supabase:\n'+e.message);}
+ $('#btnReload').disabled=false;
+}
+$('#btnReload').onclick=load;
+$('#search').oninput=e=>{q=e.target.value;render();};
+$$('#sortSeg button').forEach(b=>b.onclick=()=>{$$('#sortSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');sortMode=b.dataset.s;render();});
+$$('#filterSeg button').forEach(b=>b.onclick=()=>{$$('#filterSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');filterMode=b.dataset.f;render();});
+load();
+</script>
+</body></html>
