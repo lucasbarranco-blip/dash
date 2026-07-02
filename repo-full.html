@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- VERSION v3-stockxlsx : carga de stock real desde Reporte de Planificación (Excel ML) -->
+<!-- VERSION v3.1-stockvel : carga de stock real desde Reporte de Planificación (Excel ML) -->
 <html lang="es"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Reposición Full · Ganga Home</title>
@@ -102,7 +102,7 @@ tr:hover td{background:#faf8f1}
 </style></head>
 <body>
 <header><div class="wrap">
-  <div><b>Reposición Full</b><br><span class="sub">Ganga Home · v3-stockxlsx</span></div>
+  <div><b>Reposición Full</b><br><span class="sub">Ganga Home · v3.1-stockvel</span></div>
   <div class="spacer"></div>
   <span class="statepill"><span class="dot" id="dot"></span><span id="stateTxt">Cargando…</span></span>
   <button class="topbtn" id="btnStockXlsx" title="Cargar el Reporte de Planificación (.xlsx) de Mercado Libre y usar su stock real">📄 Stock real (Excel ML)</button>
@@ -764,26 +764,26 @@ function parseReport(wb){
  const H=(aoa[hi]||[]).map(_norm);
  const col=(...names)=>{for(const n of names){let j=H.findIndex(h=>h===n);if(j<0)j=H.findIndex(h=>h.includes(n));if(j>=0)return j;}return -1;};
  const iSku=col('sku'), iPub=col('publicaciones con este producto','publicaciones'),
-   iApt=col('unidades aptas'), iCam=col('unidades en camino');
+   iApt=col('unidades aptas'), iCam=col('unidades en camino'), iVen=col('unidades vendidas','vendidas');
  if(iApt<0)throw new Error('Falta la columna "Unidades aptas".');
  const byMla={};const distinct=new Set();let rows=0;
  for(let i=hi+1;i<aoa.length;i++){const c=aoa[i]||[];const sku=String(iSku>=0?c[iSku]:'').trim();if(!sku)continue;rows++;
-  const apt=Math.max(0,Math.round(_num(c[iApt])));const cam=iCam>=0?Math.max(0,Math.round(_num(c[iCam]))):0;
+  const apt=Math.max(0,Math.round(_num(c[iApt])));const cam=iCam>=0?Math.max(0,Math.round(_num(c[iVenl]))):0;
   const pubs=String(iPub>=0?c[iPub]:'').trim();
-  let mlas=pubs?pubs.split(/[,\s]+/).filter(Boolean).map(p=>p.startsWith('MLA')?p:'MLA'+p):[];
+  let mlas=pubs?pubs.split(/[,\s]+/).filter(Boolean).map(p=>p.startsVith('MLA')?p:'MLA'+p):[];
   if(!mlas.length){const m=S2M[sku.toUpperCase()];if(m)mlas=[m];}
-  for(const mla of mlas){distinct.add(mla);if(!byMla[mla])byMla[mla]={stock:0,camino:0};byMla[mla].stock+=apt;byMla[mla].camino+=cam;}
+  for(const mla of mlas){distinct.add(mla);if(!byMla[mla])byMla[mla]={stock:0,camino:0,v30:0};byMla[mla].stock+=apt;byMla[mla].camino+=cam;byMla[mla].v30+=ven;}
  }
  return {byMla,fecha:_reportFecha(aoa),distinct:distinct.size,rows};
 }
 function applyStockOverride(){
  if(!STOCK_OVR||!STOCK_OVR.byMla||!DATA.length)return;
  let hit=0,zero=0;
- DATA.forEach(r=>{const o=STOCK_OVR.byMla[r.mla];if(o){r.stock=o.stock;r.camino=o.camino;hit++;}else{r.stock=0;r.camino=0;zero++;}});
+ DATA.forEach(r=>{const o=STOCK_OVR.byMla[r.mla];if(o){r.stock=o.stock;r.camino=o.camino;if(o.v30!=null){r.v30=o.v30;r.vd=o.v30/30;}hit++;}else{r.stock=0;r.camino=0;r.v30=0;r.vd=0;zero++;}});
  STOCK_OVR._hit=hit;STOCK_OVR._zero=zero;
  const cb=$('#btnStockClear');if(cb)cb.style.display='';
 }
-function stockStateText(){if(!STOCK_OVR)return null;return 'Stock Excel ('+(STOCK_OVR.fecha||'')+') · '+(STOCK_OVR._hit||0)+' con dato · '+(STOCK_OVR._zero||0)+' en 0';}
+function stockStateText(){if(!STOCK_OVR)return null;return 'Stock+venta Excel ('+(STOCK_OVR.fecha||'')+') · '+(STOCK_OVR._hit||0)+' con dato · '+(STOCK_OVR._zero||0)+' en 0';}
 function loadStockXlsx(file){
  const fr=new FileReader();
  fr.onload=()=>{try{
