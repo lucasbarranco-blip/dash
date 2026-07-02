@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- VERSION v2-fix-1441 : fix pestañas + horizonte editable -->
+<!-- VERSION v3-stockxlsx : carga de stock real desde Reporte de Planificación (Excel ML) -->
 <html lang="es"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Reposición Full · Ganga Home</title>
@@ -102,9 +102,11 @@ tr:hover td{background:#faf8f1}
 </style></head>
 <body>
 <header><div class="wrap">
-  <div><b>Reposición Full</b><br><span class="sub">Ganga Home · v2-fix-1441</span></div>
+  <div><b>Reposición Full</b><br><span class="sub">Ganga Home · v3-stockxlsx</span></div>
   <div class="spacer"></div>
   <span class="statepill"><span class="dot" id="dot"></span><span id="stateTxt">Cargando…</span></span>
+  <button class="topbtn" id="btnStockXlsx" title="Cargar el Reporte de Planificación (.xlsx) de Mercado Libre y usar su stock real">📄 Stock real (Excel ML)</button>
+  <button class="topbtn" id="btnStockClear" title="Volver al stock del sistema" style="display:none">✕ quitar Excel</button>
   <button class="topbtn" id="btnReload">↻ Actualizar</button>
 </div></header>
 
@@ -667,7 +669,9 @@ function setState(cls,txt){$('#dot').className='dot '+cls;$('#stateTxt').textCon
 async function loadLive(){
  setState('load','Conectando…');$('#btnReload').disabled=true;
  try{DATA=await SUPA.load();
-  setState('live',DATA.length+' SKUs · venta real 30d');
+  applyStockOverride();
+  const st=stockStateText();
+  setState('live', st || (DATA.length+' SKUs · venta real 30d'));
   PLAN=optimize();render();
  }catch(e){setState('err','Error: '+e.message);alert('No pude leer Supabase:\n'+e.message);}
  $('#btnReload').disabled=false;
@@ -739,6 +743,62 @@ function syncCfg(srcId){
 });
 $('#btnDiscAdd').onclick=()=>{const v=$('#discAdd').value.trim();if(v){v.split(/[\s,;]+/).filter(Boolean).forEach(k=>DISC.add(k));saveDisc();$('#discAdd').value='';recompute();}};
 $('#discAdd').onkeydown=e=>{if(e.key==='Enter')$('#btnDiscAdd').click();};
+
+// ===== STOCK REAL desde Excel (Reporte de Planificación de ML) =====
+// Usa "Unidades aptas" como stock y "Unidades en camino", agregados por publicación (MLA).
+const S2M={};for(const _m in M2S){S2M[(M2S[_m]||'').toUpperCase()]=_m;}
+const XK='gh_full_stock_xlsx_v1';
+let STOCK_OVR=null; // {byMla:{MLA:{stock,camino}}, fecha, distinct, rows, _hit, _zero}
+try{const _r=localStorage.getItem(XK);if(_r)STOCK_OVR=JSON.parse(_r);}catch(e){}
+const _num=v=>{if(typeof v==='number')return v;if(v==null)return 0;let s=String(v).trim().replace(/\./g,'').replace(',','.').replace(/[^0-9.\-]/g,'');const n=parseFloat(s);return isNaN(n)?0:n;};
+const _norm=h=>String(h==null?'':h).toLowerCase().replace(/\n/g,' ').replace(/\s+/g,' ').trim()
+  .replace(/[áà]/g,'a').replace(/[íì]/g,'i').replace(/[éè]/g,'e').replace(/[óò]/g,'o').replace(/[úù]/g,'u');
+function _reportFecha(aoa){for(let i=0;i<Math.min(aoa.length,8);i++){const t=String((aoa[i]||[])[0]||'');const m=t.match(/\d{1,2} de \w+/);if(m)return m[0];}return new Date().toLocaleDateString('es-AR');}
+function parseReport(wb){
+ const ws=wb.Sheets[wb.SheetNames[0]];
+ const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+ let hi=-1;
+ for(let i=0;i<Math.min(aoa.length,40);i++){const row=(aoa[i]||[]).map(_norm);
+  if(row.includes('sku')&&row.some(c=>c.includes('unidades aptas'))){hi=i;break;}}
+ if(hi<0)throw new Error('No encontré el encabezado (SKU / Unidades aptas). ¿Es el Reporte de Planificación de envíos de ML?');
+ const H=(aoa[hi]||[]).map(_norm);
+ const col=(...names)=>{for(const n of names){let j=H.findIndex(h=>h===n);if(j<0)j=H.findIndex(h=>h.includes(n));if(j>=0)return j;}return -1;};
+ const iSku=col('sku'), iPub=col('publicaciones con este producto','publicaciones'),
+   iApt=col('unidades aptas'), iCam=col('unidades en camino');
+ if(iApt<0)throw new Error('Falta la columna "Unidades aptas".');
+ const byMla={};const distinct=new Set();let rows=0;
+ for(let i=hi+1;i<aoa.length;i++){const c=aoa[i]||[];const sku=String(iSku>=0?c[iSku]:'').trim();if(!sku)continue;rows++;
+  const apt=Math.max(0,Math.round(_num(c[iApt])));const cam=iCam>=0?Math.max(0,Math.round(_num(c[iCam]))):0;
+  const pubs=String(iPub>=0?c[iPub]:'').trim();
+  let mlas=pubs?pubs.split(/[,\s]+/).filter(Boolean).map(p=>p.startsWith('MLA')?p:'MLA'+p):[];
+  if(!mlas.length){const m=S2M[sku.toUpperCase()];if(m)mlas=[m];}
+  for(const mla of mlas){distinct.add(mla);if(!byMla[mla])byMla[mla]={stock:0,camino:0};byMla[mla].stock+=apt;byMla[mla].camino+=cam;}
+ }
+ return {byMla,fecha:_reportFecha(aoa),distinct:distinct.size,rows};
+}
+function applyStockOverride(){
+ if(!STOCK_OVR||!STOCK_OVR.byMla||!DATA.length)return;
+ let hit=0,zero=0;
+ DATA.forEach(r=>{const o=STOCK_OVR.byMla[r.mla];if(o){r.stock=o.stock;r.camino=o.camino;hit++;}else{r.stock=0;r.camino=0;zero++;}});
+ STOCK_OVR._hit=hit;STOCK_OVR._zero=zero;
+ const cb=$('#btnStockClear');if(cb)cb.style.display='';
+}
+function stockStateText(){if(!STOCK_OVR)return null;return 'Stock Excel ('+(STOCK_OVR.fecha||'')+') · '+(STOCK_OVR._hit||0)+' con dato · '+(STOCK_OVR._zero||0)+' en 0';}
+function loadStockXlsx(file){
+ const fr=new FileReader();
+ fr.onload=()=>{try{
+  const wb=XLSX.read(fr.result,{type:'array'});
+  const rep=parseReport(wb);
+  if(!Object.keys(rep.byMla).length){alert('No leí filas de stock del reporte.');return;}
+  STOCK_OVR=rep;try{localStorage.setItem(XK,JSON.stringify({byMla:rep.byMla,fecha:rep.fecha,distinct:rep.distinct,rows:rep.rows}));}catch(e){}
+  applyStockOverride();recompute();setState('live',stockStateText());
+ }catch(e){alert('No pude leer el Excel:\n'+e.message);}};
+ fr.readAsArrayBuffer(file);
+}
+function clearStockXlsx(){STOCK_OVR=null;try{localStorage.removeItem(XK);}catch(e){}const cb=$('#btnStockClear');if(cb)cb.style.display='none';loadLive();}
+$('#btnStockXlsx').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='.xlsx,.xls';i.onchange=e=>{if(e.target.files[0])loadStockXlsx(e.target.files[0]);};i.click();};
+$('#btnStockClear').onclick=clearStockXlsx;
+if(STOCK_OVR)$('#btnStockClear').style.display='';
 
 loadLive();
 </script>
