@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan Full · Ganga Home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#F5F5F5; --card:#FFFFFF; --ink:#333333; --ink2:#666666; --ink3:#999999;
+  --line:#EEEEEE; --line2:#DDDDDD;
+  --ok:#00A650; --okbg:#EAF7EF;
+  --warn:#A87900; --warnbg:#FFF6DE;
+  --bad:#E8590C; --badbg:#FDEFE6;
+  --crit:#F23D4F; --critbg:#FFF0F0;
+  --acc:#3483FA; --accbg:#EBF3FE;
+  --ml:#FFF159;
+  --sh:0 1px 2px rgba(0,0,0,.1);
+  --mono:Inter,system-ui,sans-serif;
+  --sans:Inter,system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13.5px;line-height:1.5}
+button{font-family:inherit;cursor:pointer;background:none;border:none;color:inherit}
+input,select{font-family:inherit;font-size:13px}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- header ---------- */
+header{position:sticky;top:0;z-index:50;background:var(--ml);padding:11px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+header h1{font-size:16px;font-weight:700;color:#333}
+header h1 small{color:#7A6E00;font-weight:500;margin-left:6px;font-size:13px}
+#snapInfo{font-size:12px;color:#7A6E00}
+header .spacer{flex:1}
+.hbtn{background:rgba(255,255,255,.6);border-radius:6px;padding:7px 14px;font-size:12.5px;font-weight:600;color:#333}
+.hbtn:hover{background:#fff}
+.hbtn.primary{background:var(--acc);color:#fff}
+.hbtn.primary:hover{background:#2968C8}
+#syncState{font-size:11.5px;color:#7A6E00}
+#syncState.live{color:#1E7E34;font-weight:600}
+#syncState.err{color:#C0392B;font-weight:600}
+
+/* ---------- upload zone ---------- */
+#dropZone{margin:70px auto;max-width:640px;background:var(--card);border-radius:10px;box-shadow:var(--sh);padding:56px 44px;text-align:center;border:2px dashed transparent;transition:border-color .15s}
+#dropZone.over{border-color:var(--acc)}
+#dropZone h2{font-size:22px;font-weight:700;margin-bottom:8px}
+#dropZone p{color:var(--ink2);font-size:14px;max-width:440px;margin:0 auto 22px}
+#dropZone .path{font-size:11.5px;color:var(--ink3);margin-top:18px}
+
+/* ---------- layout ---------- */
+main{max-width:1440px;margin:0 auto;padding:16px 22px 90px}
+section{margin-bottom:14px}
+
+/* ---------- depósitos ---------- */
+#depots{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){#depots{grid-template-columns:1fr}}
+.depot{background:var(--card);border-radius:8px;box-shadow:var(--sh);padding:14px 18px}
+.depot .dhead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.depot .dname{font-weight:600;font-size:13.5px}
+.depot .dcap{font-size:12.5px;color:var(--ink2)}
+.depot .dcap b{color:var(--ink);font-weight:600;font-size:14px}
+.rail{position:relative;height:9px;background:#EEF0F2;border-radius:6px;margin:10px 0 8px;overflow:hidden}
+.rail .seg{position:absolute;top:0;bottom:0}
+.rail .seg.occ{background:var(--acc);border-radius:6px 0 0 6px}
+.rail .seg.plan{background:var(--acc);opacity:.35}
+.rail .seg.over{background:var(--crit)}
+.dlegend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--ink2)}
+.dlegend b{color:var(--ink);font-weight:600}
+.depot .dfree{margin-top:6px;font-size:12.5px;color:var(--ink2)}
+.depot .dfree b{color:var(--ink);font-weight:600}
+.depot .dfree.neg b{color:var(--crit)}
+
+/* ---------- KPIs ---------- */
+#kpis,#saludKpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px}
+.kpi{background:var(--card);border-radius:8px;box-shadow:var(--sh);padding:11px 15px}
+.kpi .kl{font-size:11.5px;color:var(--ink3);font-weight:500}
+.kpi .kv{font-size:20px;font-weight:700;margin-top:2px;letter-spacing:-.01em}
+.kpi .ks{font-size:11px;color:var(--ink3);margin-top:1px}
+.kpi .kv.bad{color:var(--crit)}
+.kpi .kv.warn{color:var(--warn)}
+.kpi .kv.ok{color:var(--ok)}
+
+/* ---------- config ---------- */
+#cfgBar{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;background:var(--card);border-radius:8px;box-shadow:var(--sh);padding:12px 18px}
+#cfgBar label{font-size:11px;color:var(--ink2);display:flex;flex-direction:column;gap:4px;font-weight:600}
+#cfgBar input{width:80px;border:1px solid var(--line2);border-radius:6px;padding:6px 8px;font-size:13px;background:#fff}
+#cfgBar input:focus{outline:none;border-color:var(--acc)}
+#cfgBar .note{font-size:11.5px;color:var(--ink3);max-width:340px;line-height:1.45;font-weight:400}
+
+/* ---------- tabs ---------- */
+#tabs{display:flex;gap:0;background:var(--card);border-radius:8px 8px 0 0;box-shadow:var(--sh);flex-wrap:wrap;padding:0 8px;position:relative;z-index:1}
+#tabs button{padding:12px 16px;font-size:13px;font-weight:600;color:var(--ink2);border-bottom:3px solid transparent}
+#tabs button:hover{color:var(--ink)}
+#tabs button.on{color:var(--acc);border-bottom-color:var(--acc)}
+#tabs button .cnt{font-size:11px;color:var(--ink3);background:var(--bg);border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600}
+#tabs button.on .cnt{background:var(--accbg);color:var(--acc)}
+#tabs button.alertTab .cnt{background:var(--critbg);color:var(--crit)}
+
+/* ---------- filtros ---------- */
+#filters{display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:12px 2px}
+#filters input[type=search]{border:1px solid var(--line2);border-radius:6px;padding:7px 12px;width:240px;background:#fff}
+#filters input[type=search]:focus{outline:none;border-color:var(--acc)}
+.chip{padding:5px 13px;font-size:12px;color:var(--ink2);font-weight:600;background:var(--card);border-radius:14px;box-shadow:var(--sh)}
+.chip:hover{color:var(--ink)}
+.chip.on{background:var(--acc);color:#fff}
+#filters .sep{width:1px;height:18px;background:var(--line2)}
+
+/* ---------- tabla ---------- */
+.twrap{background:var(--card);border-radius:8px;box-shadow:var(--sh);overflow:auto;max-height:72vh}
+table{border-collapse:collapse;width:100%;font-size:13px}
+thead th{position:sticky;top:0;background:#FAFAFA;color:var(--ink3);font-size:11.5px;padding:10px 12px;text-align:right;white-space:nowrap;z-index:5;font-weight:600;border-bottom:1px solid var(--line)}
+thead th:first-child,thead th:nth-child(2){text-align:left}
+tbody td{padding:8px 12px;border-bottom:1px solid #F4F4F4;text-align:right;white-space:nowrap}
+tbody td:first-child,tbody td:nth-child(2){text-align:left}
+tbody tr:hover td{background:#F9FBFF}
+td.prod{max-width:340px;overflow:hidden;text-overflow:ellipsis}
+td.prod .var{display:block;font-size:11px;color:var(--ink3);max-width:340px;overflow:hidden;text-overflow:ellipsis}
+td .sku{font-size:12.5px;color:var(--acc);font-weight:500}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:5px;letter-spacing:.01em}
+.pill.pm{background:var(--accbg);color:var(--acc)}
+.pill.gx{background:#F3EBFD;color:#8348C7}
+.pill.sin{background:var(--critbg);color:var(--crit)}
+.pill.cri{background:var(--badbg);color:var(--bad)}
+.pill.baj,.pill.med{background:var(--warnbg);color:var(--warn)}
+.pill.suf{background:var(--okbg);color:var(--ok)}
+.pill.na{background:var(--bg);color:var(--ink3)}
+.pill.disc{background:#EFEFEF;color:#888;text-decoration:line-through}
+td .cov{font-weight:700}
+.cov.c0{color:var(--crit)}.cov.c1{color:var(--bad)}.cov.c2{color:var(--warn)}.cov.c3{color:var(--ok)}.cov.cinf{color:var(--ink3)}
+td input.qty{width:66px;border:1px solid var(--line2);border-radius:6px;padding:5px 7px;text-align:right;font-size:13px;background:#fff}
+td input.qty:focus{outline:none;border-color:var(--acc)}
+td input.qty.hot{border-color:var(--acc);background:var(--accbg);font-weight:600}
+td .trend{font-size:11px}
+.trend.up{color:var(--ok)}.trend.dn{color:var(--bad)}
+td .mlsug{color:var(--ink3)}
+tr.cut td .cutflag{font-size:10.5px;color:var(--warn)}
+tr.discRow td{opacity:.5}
+tr.discRow td .dbtn{opacity:1}
+tfoot td{position:sticky;bottom:0;background:#FAFAFA;border-top:1px solid var(--line2);font-weight:700;padding:9px 12px;text-align:right;font-size:12.5px}
+tfoot td:first-child{text-align:left}
+.dbtn{font-size:11.5px;color:var(--ink3);font-weight:600;padding:2px 6px;border-radius:4px}
+.dbtn:hover{color:var(--crit);background:var(--critbg)}
+.dbtn.on{color:var(--crit);background:var(--critbg)}
+
+/* barra de totales del plan */
+#planTotals{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;background:var(--card);border-radius:8px;box-shadow:var(--sh);padding:12px 18px;margin-bottom:12px}
+#planTotals .pt{font-size:13px}
+#planTotals .pt b{font-size:17px;font-weight:700}
+#planTotals .pt.neg b{color:var(--crit)}
+#planTotals .pt .lbl{color:var(--ink3);font-size:11px;display:block;font-weight:500}
+#planTotals .spacer{flex:1}
+#deadlineNote{width:100%;font-size:12.5px;color:var(--warn);padding-top:6px;font-weight:600}
+.xbtn{background:var(--acc);border:none;color:#fff;border-radius:6px;padding:9px 16px;font-weight:600;font-size:12.5px}
+.xbtn:hover{background:#2968C8}
+.xbtn.ghost{background:#fff;color:var(--acc);border:1px solid var(--line2)}
+.xbtn.ghost:hover{border-color:var(--acc);background:var(--accbg)}
+
+.sechead{display:flex;align-items:baseline;gap:12px;margin:14px 2px 12px;flex-wrap:wrap}
+.sechead h3{font-size:16px;font-weight:700}
+.sechead p{font-size:12.5px;color:var(--ink2)}
+.sechead .spacer{flex:1}
+.empty{padding:44px;text-align:center;color:var(--ink3);font-size:13px}
+#shipLog{font-size:12.5px;color:var(--ink2);background:var(--card);border-radius:8px;box-shadow:var(--sh);padding:12px 18px;margin-top:12px}
+#shipLog:empty{display:none;padding:0;box-shadow:none}
+#shipLog .shiprow{display:flex;gap:14px;padding:5px 0;border-bottom:1px solid var(--line)}
+#shipLog .shiprow:last-child{border-bottom:none}
+#saludGrids .depot,#abcCards .depot{border:none}
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+#toast.show{opacity:1}
+@media(max-width:700px){
+  main{padding:12px 12px 60px}
+  header{padding:10px 14px}
+  #filters input[type=search]{width:100%}
+  #saludGrids{grid-template-columns:1fr !important}
+  .kpi .kv{font-size:17px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Plan Full <small>Ganga Home</small></h1>
+  <span id="snapInfo">sin reporte</span>
+  <span id="syncState">supabase: —</span>
+  <div class="spacer"></div>
+  <button class="hbtn" id="btnReload" style="display:none">Cargar otro reporte</button>
+  <button class="hbtn primary" id="btnSync" style="display:none">Sincronizar ventas</button>
+</header>
+
+<div id="dropZone">
+  <h2>Subí el Reporte de Planificación</h2>
+  <p>Arrastrá acá el Excel que descargás de Mercado Libre (Enviar a Full → Planificar envíos → Descargar reporte). De ahí salen tamaños, stock apto, en camino, fechas límite y el espacio disponible real de cada depósito.</p>
+  <button class="xbtn" onclick="document.getElementById('fileInput').click()">Elegir archivo</button>
+  <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
+  <div class="path">Reporte_de_Planificacion_-_*.xlsx · se procesa en tu navegador, no se sube a ningún lado</div>
+</div>
+
+<main id="app" style="display:none">
+
+  <section id="depots"></section>
+
+  <section id="kpis"></section>
+
+  <section id="cfgBar">
+    <label>Lead time (días)<input type="number" id="cfgLead" min="0" max="30" step="1"></label>
+    <label>Cobertura objetivo (días)<input type="number" id="cfgCover" min="7" max="120" step="1"></label>
+    <label>Excedente desde (días)<input type="number" id="cfgExc" min="30" max="365" step="1"></label>
+    <label>Escenario demanda (%)<input type="number" id="cfgFactor" min="-50" max="200" step="5"></label>
+    <label>Capacidad PyM (u.)<input type="number" id="cfgCapPM" min="0" step="10"></label>
+    <label>Capacidad GyE (u.)<input type="number" id="cfgCapGX" min="0" step="10"></label>
+    <div class="note">Lead = días desde que despachás hasta que ML lo recibe apto. El plan apunta a que cada SKU quede con la cobertura objetivo al momento de ingreso, respetando el espacio libre de cada depósito.</div>
+  </section>
+
+  <section>
+    <div id="tabs">
+      <button data-tab="plan" class="on">Plan de envío<span class="cnt" id="cntPlan">0</span></button>
+      <button data-tab="quiebre" class="alertTab">Quiebres y riesgo<span class="cnt" id="cntQuiebre">0</span></button>
+      <button data-tab="exceso">Liberar espacio<span class="cnt" id="cntExceso">0</span></button>
+      <button data-tab="nuevos">Nuevos ingresos<span class="cnt" id="cntNuevos">0</span></button>
+      <button data-tab="salud">Salud de stock</button>
+      <button data-tab="abc">ABC · métricas</button>
+    </div>
+
+    <div id="tab-plan">
+      <div id="filters">
+        <input type="search" id="fSearch" placeholder="Buscar SKU o producto…">
+        <button class="chip" data-f="depot" data-v="pm">PyM</button>
+        <button class="chip" data-f="depot" data-v="gx">GyE</button>
+        <div class="sep"></div>
+        <button class="chip on" data-f="need" data-v="1">Solo con envío</button>
+        <button class="chip" data-f="disc" data-v="1">No vuelven</button>
+        <div class="sep"></div>
+        <span id="fFechas"></span>
+      </div>
+      <div id="planTotals"></div>
+      <div class="twrap"><table id="tblPlan"></table></div>
+      <div id="shipLog"></div>
+    </div>
+
+    <div id="tab-quiebre" style="display:none">
+      <div class="sechead" style="margin-top:14px"><h3>Quiebres y riesgo de quiebre</h3><p>Ordenado por plata que se pierde por día. Cobertura menor al lead time = ya no llegás aunque despaches hoy.</p></div>
+      <div class="twrap"><table id="tblQuiebre"></table></div>
+    </div>
+
+    <div id="tab-exceso" style="display:none">
+      <div class="sechead" style="margin-top:14px"><h3>Stock excedente · espacio recuperable</h3><p>SKUs con cobertura mayor al umbral o que ML marca como excedentes. Solo cuenta unidades aptas.</p><span class="spacer"></span><button class="xbtn ghost" id="btnRetiro">Copiar lista de retiro</button></div>
+      <div class="twrap"><table id="tblExceso"></table></div>
+    </div>
+
+    <div id="tab-nuevos" style="display:none">
+      <div class="sechead" style="margin-top:14px"><h3>Nuevos ingresos</h3><p>Publicaciones que nunca tuvieron stock ni ventas en Full. Cargá una cantidad y entra al plan reservando espacio en su depósito; sale en el export junto con el resto.</p><span class="spacer"></span><button class="xbtn ghost" id="btnExpNuevos">Exportar nuevos ↓</button></div>
+      <div style="padding:0 0 10px"><input type="search" id="fSearchNuevos" placeholder="Buscar SKU o producto…" style="border:1px solid var(--line2);border-radius:4px;padding:6px 10px;width:240px;background:var(--card)"></div>
+      <div class="twrap"><table id="tblNuevos"></table></div>
+    </div>
+
+    <div id="tab-salud" style="display:none">
+      <div class="sechead" style="margin-top:14px"><h3>Salud de stock</h3><p>Estado del inventario según tu mix de ventas en vivo. Todo valuado a precio de venta (PVP).</p></div>
+      <div id="saludKpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-bottom:16px"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px" id="saludGrids">
+        <div class="depot" style="grid-column:1/-1">
+          <div class="dhead"><span class="dname">Proyección de stock · 60 días</span><span class="dcap" id="projLegend"></span></div>
+          <div id="projChart"></div>
+          <div style="font-size:11.5px;color:var(--ink3);margin-top:6px">Línea llena = sin reponer (stock actual + lo que ya está en camino). Punteada = ejecutando el plan de envío actual. La curva asume que cada SKU vende a su ritmo diario hasta agotarse.</div>
+        </div>
+        <div class="depot"><div class="dhead"><span class="dname">Distribución de cobertura</span><span class="dcap">SKUs con venta</span></div><div id="covHist"></div></div>
+        <div class="depot"><div class="dhead"><span class="dname">Composición del stock</span><span class="dcap">unidades y PVP</span></div><div id="healthBars"></div></div>
+      </div>
+      <div class="twrap"><table id="tblSalud"></table></div>
+    </div>
+
+    <div id="tab-abc" style="display:none">
+      <div class="sechead" style="margin-top:14px"><h3>Clasificación ABC y salud del inventario</h3><p>A = 80% de la facturación, B = siguiente 15%, C = resto. El espacio de Full tiene que estar al servicio de los A.</p></div>
+      <div id="abcCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:14px"></div>
+      <div class="twrap"><table id="tblAbc"></table></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+/* ================= CONFIG ================= */
+const SUPA = {
+  url: 'https://slfmkdtsksjatcfcfvgl.supabase.co/rest/v1',
+  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsZm1rZHRza3NqYXRjZmNmdmdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNDMzNzgsImV4cCI6MjA5NTkxOTM3OH0.uKRquNgMXvLo2ZYGWm1ZE2WOwjeYDk_zo4cd92J2rXc',
+  hdr(){ return { apikey:this.key, Authorization:'Bearer '+this.key }; },
+  async page(path, qs){
+    let rows=[], off=0, sz=1000;
+    while(true){
+      const r = await fetch(`${this.url}${path}?${qs}&offset=${off}&limit=${sz}`, {headers:this.hdr()});
+      if(!r.ok) throw new Error('Supabase '+r.status);
+      const d = await r.json();
+      rows = rows.concat(d);
+      if(d.length < sz) break;
+      off += sz;
+    }
+    return rows;
+  }
+};
+
+const LSK = 'gh_planfull_v1';
+const DEFAULTS = { lead:4, cover:18, exc:90, capPM:87380, capGX:17470, factor:0 };
+const $ = s=>document.querySelector(s), $$ = s=>[...document.querySelectorAll(s)];
+const fmt = (n,d=0)=> (n==null||!isFinite(n)) ? '—' : n.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const money = n=> (n==null||!isFinite(n)) ? '—' : '$'+fmt(Math.round(n));
+const esc = s=> String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let ST = {
+  rows: [],            // filas del reporte
+  snapDate: null,      // Date de descarga del reporte
+  snapLabel: '',
+  dispPM: null,        // espacio disponible según el propio reporte
+  dispGX: null,
+  live: null,          // {ventasDesde:{mla:q}, v7:{mla:q}, ts}
+  cfg: {...DEFAULTS},
+  filters: { search:'', depot:null, need:true, fecha:null, disc:false },
+  tab: 'plan',
+  manual: {},          // envíos editados a mano {cod:qty}
+  disc: {},            // productos que no vuelven a ingresar {cod:true}
+  enviado: {},         // despachado localmente, aún no reflejado en el reporte {cod:qty}
+  ships: []            // historial de despachos [{fecha, tot, items}]
+};
+
+/* ================= PERSISTENCIA ================= */
+function save(){
+  try{
+    localStorage.setItem(LSK, JSON.stringify({
+      rows:ST.rows, snapDate:ST.snapDate?ST.snapDate.toISOString():null, snapLabel:ST.snapLabel,
+      dispPM:ST.dispPM, dispGX:ST.dispGX, cfg:ST.cfg, manual:ST.manual, disc:ST.disc, enviado:ST.enviado, ships:ST.ships
+    }));
+  }catch(e){}
+}
+function restore(){
+  try{
+    const r = JSON.parse(localStorage.getItem(LSK));
+    if(r && r.rows && r.rows.length){
+      ST.rows = r.rows;
+      ST.snapDate = r.snapDate ? new Date(r.snapDate) : null;
+      ST.snapLabel = r.snapLabel||'';
+      ST.dispPM = r.dispPM; ST.dispGX = r.dispGX;
+      ST.cfg = {...DEFAULTS, ...(r.cfg||{})};
+      ST.manual = r.manual||{};
+      ST.disc = r.disc||{};
+      ST.enviado = r.enviado||{};
+      ST.ships = r.ships||[];
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+
+/* ================= PARSER DEL REPORTE ================= */
+const MESES = {enero:0,febrero:1,marzo:2,abril:3,mayo:4,junio:5,julio:6,agosto:7,septiembre:8,octubre:9,noviembre:10,diciembre:11};
+function arNum(x){
+  if(x==null) return null;
+  if(typeof x==='number') return isFinite(x)?x:null;
+  const s = String(x).trim();
+  if(!s || s==='-' || s==='N/A' || /pendiente/i.test(s)) return null;
+  const clean = s.replace(/[$u.\s]/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.\-]/g,'');
+  const n = parseFloat(clean);
+  return isFinite(n)?n:null;
+}
+function parseReport(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const grid = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''});
+  let hdrIdx=-1, snapDate=null, snapLabel='', dispPM=null, dispGX=null;
+  for(let i=0;i<Math.min(grid.length,20);i++){
+    const line = grid[i].map(c=>String(c)).join(' | ');
+    let m = line.match(/Descargado el (\d{1,2}) de (\w+)(?:\s+de\s+(\d{4}))?(?:\s+a las\s+(\d{1,2}):(\d{2}))?/i);
+    if(m){
+      const y = m[3]?+m[3]:new Date().getFullYear();
+      snapDate = new Date(y, MESES[m[2].toLowerCase()]??0, +m[1], m[4]?+m[4]:0, m[5]?+m[5]:0);
+      snapLabel = m[0];
+    }
+    m = line.match(/Peque[ñn]os y medianos:\s*([\d.,]+)/i);
+    if(m) dispPM = arNum(m[1]);
+    m = line.match(/Grandes y extragrandes:\s*([\d.,]+)/i);
+    if(m) dispGX = arNum(m[1]);
+    if(grid[i].some(c=>String(c).trim()==='Código ML')){ hdrIdx=i; break; }
+  }
+  if(hdrIdx<0) throw new Error('No encontré la fila de encabezados ("Código ML"). ¿Es el Reporte de Planificación de envíos?');
+  const H = grid[hdrIdx].map(c=>String(c).replace(/\s+/g,' ').trim());
+  const col = (frag)=> H.findIndex(h=>h.toLowerCase().includes(frag));
+  const C = {
+    cod: col('código ml'), sku: H.findIndex(h=>h==='SKU'), prod: col('producto'),
+    vari: col('variante'), pubs: col('publicaciones'), tam: col('tamaño'),
+    vol: col('volumen'), clas: col('clasificación'), vb: col('ventas brutas'),
+    u30: col('unidades vendidas'), aptas: col('unidades aptas'), camino: col('en camino'),
+    min: col('mínimas'), sug: col('sugeridas'), fl: col('fecha límite'),
+    nivel: col('nivel de stock'), obs: col('observaciones')
+  };
+  const rows=[];
+  for(let i=hdrIdx+1;i<grid.length;i++){
+    const g = grid[i];
+    const cod = String(g[C.cod]||'').trim();
+    if(!cod) continue;
+    const tam = String(g[C.tam]||'').trim();
+    const pubsRaw = String(g[C.pubs]||'').trim();
+    const pubs = pubsRaw && pubsRaw!=='-' ? pubsRaw.split(',').map(p=>{
+      p=p.trim(); return /^MLA/i.test(p)?p.toUpperCase():('MLA'+p);
+    }) : [];
+    const sugRaw = String(g[C.sug]||'').trim();
+    rows.push({
+      cod, sku:String(g[C.sku]||'').trim(), prod:String(g[C.prod]||'').trim(),
+      vari:String(g[C.vari]||'').replace(/^N\/A$/,'').trim(),
+      pubs, tam,
+      tramo:(tam==='Pequeño'||tam==='Mediano')?'pm':'gx',
+      vol: arNum(g[C.vol])||0,
+      estrella: /estrella/i.test(String(g[C.clas]||'')),
+      vb30: arNum(g[C.vb])||0,
+      u30: arNum(g[C.u30])||0,
+      aptas: arNum(g[C.aptas])||0,
+      camino: arNum(g[C.camino])||0,
+      minHoy: arNum(g[C.min])||0,
+      sug: arNum(sugRaw),
+      sugPend: /pendiente/i.test(sugRaw),
+      fl: (v=>v&&v!=='-'?v:null)(String(g[C.fl]||'').trim()),
+      nivel: String(g[C.nivel]||'').trim(),
+      obs: String(g[C.obs]||'').replace(/\s+/g,' ').trim()
+    });
+  }
+  if(!rows.length) throw new Error('El reporte no tiene filas de productos.');
+  return {rows, snapDate, snapLabel, dispPM, dispGX};
+}
+
+/* ================= SUPABASE: ventas en vivo ================= */
+async function syncVentas(){
+  const st = $('#syncState');
+  st.className=''; st.textContent='supabase: consultando…';
+  try{
+    const now = new Date();
+    const d7 = new Date(now-7*864e5).toISOString().slice(0,10);
+    const snap = ST.snapDate ? ST.snapDate.toISOString().slice(0,10) : d7;
+    const since = snap < d7 ? snap : d7;
+    const ventas = await SUPA.page('/ventas', 'select=producto_id,cantidad,fecha&estado=eq.paid&fecha=gte.'+since);
+    const vSnap={}, v7={};
+    const snapTs = ST.snapDate ? ST.snapDate.getTime() : 0;
+    for(const v of ventas){
+      const id=v.producto_id; if(!id) continue;
+      const q=+v.cantidad||0;
+      const f=String(v.fecha||'');
+      const ts=new Date(f.length>10?f:f+'T12:00:00').getTime();
+      if(f>=d7) v7[id]=(v7[id]||0)+q;
+      if(ts>=snapTs) vSnap[id]=(vSnap[id]||0)+q;
+    }
+    ST.live = {vSnap, v7, ts:now.getTime()};
+    const tot = Object.values(vSnap).reduce((a,b)=>a+b,0);
+    st.className='live';
+    st.textContent=`supabase: ${fmt(tot)} u. vendidas desde el reporte · ${now.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}`;
+    render();
+  }catch(e){
+    st.className='err'; st.textContent='supabase: sin conexión ('+e.message+')';
+    ST.live=null; render();
+  }
+}
+
+/* ================= MOTOR DE CÁLCULO ================= */
+function compute(){
+  const cfg = ST.cfg;
+  // 1. distribuir ventas en vivo de cada publicación entre sus variantes, proporcional a u30
+  const byPub = {};
+  ST.rows.forEach((r,i)=> r.pubs.forEach(p=>{ (byPub[p]=byPub[p]||[]).push(i); }));
+  const dSnap = new Array(ST.rows.length).fill(0);
+  const dV7 = new Array(ST.rows.length).fill(0);
+  if(ST.live){
+    for(const [pub, idxs] of Object.entries(byPub)){
+      const qs = ST.live.vSnap[pub]||0, q7 = ST.live.v7[pub]||0;
+      if(!qs && !q7) continue;
+      const wsum = idxs.reduce((a,i)=>a+ST.rows[i].u30,0);
+      idxs.forEach(i=>{
+        const w = wsum>0 ? ST.rows[i].u30/wsum : 1/idxs.length;
+        dSnap[i]+=qs*w; dV7[i]+=q7*w;
+      });
+    }
+  }
+  // 2. métricas por fila
+  const R = ST.rows.map((r,i)=>{
+    const vDesde = Math.round(dSnap[i]);
+    const stockReal = Math.max(0, r.aptas - vDesde);
+    const camino = r.camino + (ST.enviado[r.cod]||0);
+    const disponible = stockReal + camino;
+    const vd30 = r.u30/30;
+    const vd7 = ST.live ? dV7[i]/7 : null;
+    const vdBase = (vd7!=null && (vd7>0||vd30>0)) ? 0.5*vd7+0.5*vd30 : vd30;
+    const vd = vdBase * (1 + (cfg.factor||0)/100);
+    const cob = vd>0 ? disponible/vd : (disponible>0?Infinity:0);
+    const pu = r.u30>0 ? r.vb30/r.u30 : 0;
+    const riesgoDia = vd*pu;
+    // necesidad: dejar cobertura objetivo al momento de ingreso (descuenta lo que se vende durante el lead)
+    let need = 0;
+    if(vd>0) need = Math.max(0, Math.ceil(vd*(cfg.cover+cfg.lead) - disponible));
+    const bloqueado = /dejaste de ofrecer|no pod[eé]s enviar|no estamos recibiendo|reactives/i.test(r.obs);
+    const noReponer = /te sugerimos no (enviar|reponer)/i.test(r.obs);
+    const disc = !!ST.disc[r.cod];
+    const nuevo = r.u30===0 && r.vb30===0 && r.aptas===0 && r.camino===0 && !disc;
+    if(bloqueado || disc) need = 0;
+    return {...r, i, camino, vDesde, stockReal, disponible, vd, vd7, vd30, cob, pu, riesgoDia, need, bloqueado, noReponer, disc, nuevo,
+      trend: (vd7!=null && vd30>0) ? (vd7/vd30) : null };
+  });
+
+  // 3. espacio libre por depósito (el reporte trae el dato exacto; las ventas post-reporte liberan espacio)
+  const ventasPM = R.filter(r=>r.tramo==='pm').reduce((a,r)=>a+r.vDesde,0);
+  const ventasGX = R.filter(r=>r.tramo==='gx').reduce((a,r)=>a+r.vDesde,0);
+  const occPM0 = ST.dispPM!=null ? cfg.capPM-ST.dispPM : R.filter(r=>r.tramo==='pm').reduce((a,r)=>a+r.aptas+r.camino,0);
+  const occGX0 = ST.dispGX!=null ? cfg.capGX-ST.dispGX : R.filter(r=>r.tramo==='gx').reduce((a,r)=>a+r.aptas+r.camino,0);
+  const envPM = R.filter(r=>r.tramo==='pm').reduce((a,r)=>a+(ST.enviado[r.cod]||0),0);
+  const envGX = R.filter(r=>r.tramo==='gx').reduce((a,r)=>a+(ST.enviado[r.cod]||0),0);
+  const occ = { pm: Math.max(0,occPM0-ventasPM)+envPM, gx: Math.max(0,occGX0-ventasGX)+envGX };
+  const free = { pm: cfg.capPM-occ.pm, gx: cfg.capGX-occ.gx };
+
+  // 4. asignación con restricción de espacio: primero lo fijado a mano (reserva espacio), después automático por $ en riesgo
+  const rem = {...free};
+  for(const r of R){
+    if(ST.manual[r.cod]!=null && !r.disc){
+      r.plan = Math.max(0, Math.round(ST.manual[r.cod]));
+      rem[r.tramo] -= r.plan;
+    }
+  }
+  const rank = R.filter(r=>r.need>0 && !r.bloqueado && !r.disc && r.plan==null)
+    .sort((a,b)=> (b.riesgoDia-a.riesgoDia) || (a.cob-b.cob));
+  for(const r of rank){
+    r.plan = Math.min(r.need, Math.max(0, rem[r.tramo]));
+    r.cut = r.plan < r.need;
+    rem[r.tramo] -= r.plan;
+  }
+  R.forEach(r=>{ if(r.plan==null) r.plan = 0; });
+
+  const planPM = R.filter(r=>r.tramo==='pm').reduce((a,r)=>a+r.plan,0);
+  const planGX = R.filter(r=>r.tramo==='gx').reduce((a,r)=>a+r.plan,0);
+  const m3 = R.reduce((a,r)=>a+r.plan*r.vol,0)/1e6;
+
+  // 5. quiebres / excedentes
+  const quiebres = R.filter(r=> r.vd>0 && r.cob < cfg.lead && !r.bloqueado && !r.disc)
+    .sort((a,b)=>b.riesgoDia-a.riesgoDia);
+  const excesos = R.filter(r=> r.stockReal>0 && (r.disc || r.noReponer || (isFinite(r.cob) && r.cob>cfg.exc) || r.vd===0))
+    .map(r=>({...r, liberable: r.disc ? r.stockReal : Math.max(0, Math.round(r.stockReal - r.vd*60))}))
+    .filter(r=>r.liberable>0)
+    .sort((a,b)=>b.liberable-a.liberable);
+
+  // 6. ABC por facturación 30d
+  const abc = [...R].sort((a,b)=>b.vb30-a.vb30);
+  const vbTot = abc.reduce((a,r)=>a+r.vb30,0)||1;
+  let cum=0;
+  abc.forEach(r=>{ cum+=r.vb30; r.abc = cum<=vbTot*0.8?'A':(cum<=vbTot*0.95?'B':'C'); });
+
+  const nuevos = R.filter(r=>r.nuevo).sort((a,b)=> (b.plan-a.plan) || a.prod.localeCompare(b.prod) || a.vari.localeCompare(b.vari));
+
+  return {R, occ, free, planPM, planGX, m3, quiebres, excesos, nuevos, abc, vbTot,
+    ventaDiaU: R.reduce((a,r)=>a+r.vd,0),
+    ventaDia$: R.reduce((a,r)=>a+r.riesgoDia,0),
+    riesgo$: quiebres.reduce((a,r)=>a+r.riesgoDia,0),
+    camino: R.reduce((a,r)=>a+r.camino,0)
+  };
+}
+
+/* ================= RENDER ================= */
+const covClass = (c,cfg)=> !isFinite(c)?'cinf': c<cfg.lead?'c0': c<cfg.lead+7?'c1': c<cfg.cover?'c2':'c3';
+const covTxt = c=> !isFinite(c)?'∞': c<10?fmt(c,1):fmt(Math.round(c));
+const outDate = c=>{
+  if(!isFinite(c)||c>120) return null;
+  const d=new Date(Date.now()+c*864e5);
+  return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0');
+};
+const covCell = (c,cfg)=>{
+  const od=outDate(c);
+  return `<span class="cov ${covClass(c,cfg)}">${covTxt(c)}</span>${od?`<div style="font-size:10px;color:var(--ink3)">agota ${od}</div>`:''}`;
+};
+window.toggleDisc = cod=>{
+  if(ST.disc[cod]) delete ST.disc[cod]; else { ST.disc[cod]=true; delete ST.manual[cod]; }
+  save(); render();
+};
+const discBtn = r=>`<button class="dbtn ${r.disc?'on':''}" onclick="toggleDisc('${esc(r.cod)}')" title="${r.disc?'Volver a reponer este producto':'Marcar: este producto no vuelve a ingresar'}">${r.disc?'no vuelve ↩':'⊘'}</button>`;
+const nivelPill = n=>{
+  const m={'Sin stock':'sin','Crítico':'cri','Bajo':'baj','Medio':'med','Suficiente':'suf'};
+  return `<span class="pill ${m[n]||'na'}">${esc(n||'—')}</span>`;
+};
+
+function renderDepots(K){
+  const cfg=ST.cfg;
+  const mk=(name,cap,oc,plan)=>{
+    const over=oc+plan>cap;
+    const pOcc=Math.min(100,oc/cap*100), pPlan=Math.min(100-pOcc,plan/cap*100);
+    const freeNow=cap-oc, freePost=cap-oc-plan;
+    return `<div class="depot">
+      <div class="dhead"><span class="dname">${name}</span>
+      <span class="dcap"><b>${fmt(oc)}</b> de ${fmt(cap)} u. — ${fmt(oc/cap*100,0)}%</span></div>
+      <div class="rail">
+        <div class="seg occ" style="left:0;width:${pOcc}%"></div>
+        <div class="seg ${over?'over':'plan'}" style="left:${pOcc}%;width:${pPlan}%"></div>
+      </div>
+      <div class="dlegend"><span>ocupado <b>${fmt(oc)}</b></span><span>plan <b>+${fmt(plan)}</b></span><span>libre hoy <b>${fmt(freeNow)}</b></span></div>
+      <div class="dfree ${freePost<0?'neg':''}">Después del envío quedan <b>${fmt(freePost)}</b> posiciones libres${freePost<0?' — te pasás del tope':''}</div>
+    </div>`;
+  };
+  $('#depots').innerHTML =
+    mk('Pequeños y medianos', cfg.capPM, K.occ.pm, K.planPM) +
+    mk('Grandes y extragrandes', cfg.capGX, K.occ.gx, K.planGX);
+}
+function renderKpis(K){
+  const cfg=ST.cfg;
+  const cobGlobal = K.ventaDiaU>0 ? K.R.reduce((a,r)=>a+r.disponible,0)/K.ventaDiaU : 0;
+  const enviosPlan = K.R.filter(r=>r.plan>0).length;
+  const kpi=(l,v,s,cls='')=>`<div class="kpi"><div class="kl">${l}</div><div class="kv ${cls}">${v}</div><div class="ks">${s||''}</div></div>`;
+  $('#kpis').innerHTML =
+    kpi('Venta diaria', fmt(K.ventaDiaU,0)+' u.', money(K.ventaDia$)+' /día') +
+    kpi('Cobertura global', fmt(cobGlobal,0)+' d', 'objetivo '+cfg.cover+' d', cobGlobal<cfg.lead+7?'bad':cobGlobal<cfg.cover?'warn':'ok') +
+    kpi('Quiebres con venta', fmt(K.quiebres.length), 'SKUs por debajo del lead', K.quiebres.length?'bad':'ok') +
+    kpi('Plata en riesgo', money(K.riesgo$)+'/d', 'ventas que se pierden hoy', K.riesgo$>0?'bad':'ok') +
+    kpi('Plan de envío', fmt(K.planPM+K.planGX)+' u.', enviosPlan+' SKUs · '+fmt(K.m3,1)+' m³') +
+    kpi('En camino', fmt(K.camino)+' u.', 'ya despachado a Full');
+}
+
+function fechaChips(K){
+  const fechas=[...new Set(K.R.filter(r=>r.fl&&r.need>0).map(r=>r.fl))].sort((a,b)=>{
+    const [da,ma]=a.split('/'),[db,mb]=b.split('/');return (ma-mb)||(da-db);
+  });
+  $('#fFechas').innerHTML = fechas.map(f=>
+    `<button class="chip ${ST.filters.fecha===f?'on':''}" data-f="fecha" data-v="${f}">límite ${f}</button>`).join(' ');
+}
+
+function renderPlan(K){
+  const F=ST.filters, cfg=ST.cfg;
+  let rows=K.R;
+  if(F.depot) rows=rows.filter(r=>r.tramo===F.depot);
+  if(F.disc) rows=rows.filter(r=>r.disc);
+  else if(F.need) rows=rows.filter(r=>(r.need>0||r.plan>0)&&!r.disc);
+  else rows=rows.filter(r=>!r.disc);
+  if(F.fecha) rows=rows.filter(r=>r.fl===F.fecha);
+  if(F.search){ const q=F.search.toLowerCase(); rows=rows.filter(r=>(r.sku+' '+r.prod+' '+r.vari+' '+r.cod).toLowerCase().includes(q)); }
+  rows=[...rows].sort((a,b)=>(b.riesgoDia-a.riesgoDia)||(a.cob-b.cob));
+  $('#cntPlan').textContent = K.R.filter(r=>r.need>0).length;
+
+  const freePostPM = cfg.capPM-K.occ.pm-K.planPM, freePostGX = cfg.capGX-K.occ.gx-K.planGX;
+  // aviso de fecha límite más próxima con unidades en el plan
+  let dl='';
+  const hoy=new Date();
+  const flRows=K.R.filter(r=>r.fl&&r.plan>0);
+  if(flRows.length){
+    const parse=f=>{const[d,m]=f.split('/');const x=new Date(hoy.getFullYear(),m-1,d);if(x<hoy-864e5)x.setFullYear(x.getFullYear()+1);return x;};
+    const next=flRows.map(r=>r.fl).sort((a,b)=>parse(a)-parse(b))[0];
+    const dias=Math.ceil((parse(next)-hoy)/864e5);
+    const u=flRows.filter(r=>r.fl===next).reduce((a,r)=>a+r.plan,0);
+    if(dias<=7) dl=`<div id="deadlineNote">Próximo límite de envío: ${next} (${dias<=0?'hoy':'en '+dias+' día'+(dias===1?'':'s')}) — ${fmt(u)} u. del plan tienen esa fecha.</div>`;
+  }
+  $('#planTotals').innerHTML = `
+    <div class="pt"><span class="lbl">PyM a enviar</span><b>${fmt(K.planPM)}</b> u.</div>
+    <div class="pt ${freePostPM<0?'neg':''}"><span class="lbl">PyM libre post</span><b>${fmt(freePostPM)}</b></div>
+    <div class="pt"><span class="lbl">GyE a enviar</span><b>${fmt(K.planGX)}</b> u.</div>
+    <div class="pt ${freePostGX<0?'neg':''}"><span class="lbl">GyE libre post</span><b>${fmt(freePostGX)}</b></div>
+    <div class="pt"><span class="lbl">Volumen</span><b>${fmt(K.m3,1)}</b> m³</div>
+    <div class="spacer"></div>
+    <button class="xbtn ghost" id="btnResetManual">Deshacer ajustes</button>
+    <button class="xbtn ghost" id="btnCopiar">Copiar plan</button>
+    <button class="xbtn ghost" id="btnDespachar">Marcar despachado</button>
+    <button class="xbtn" id="btnExport">Exportar Excel ↓</button>
+    ${dl}`;
+  $('#btnExport').onclick=()=>exportPlan(K);
+  $('#btnResetManual').onclick=()=>{ST.manual={};save();render();};
+  $('#btnCopiar').onclick=()=>copiarPlan(K);
+  $('#btnDespachar').onclick=()=>despachar(K);
+
+  const tr=rows.map(r=>{
+    const trend = r.trend==null?'':(r.trend>1.25?'<span class="trend up">▲</span>':r.trend<0.75?'<span class="trend dn">▼</span>':'');
+    const manual = ST.manual[r.cod]!=null;
+    return `<tr class="${r.cut?'cut':''} ${r.disc?'discRow':''}">
+      <td><span class="sku">${esc(r.sku||r.cod)}</span></td>
+      <td class="prod">${esc(r.prod)}<span class="var">${esc(r.vari)}</span></td>
+      <td><span class="pill ${r.tramo}">${r.tam[0]}</span></td>
+      <td>${r.disc?'<span class="pill disc">No vuelve</span>':nivelPill(r.nivel)}</td>
+      <td class="num">${fmt(r.vd,1)} ${trend}</td>
+      <td class="num">${fmt(r.stockReal)}${r.vDesde?`<span style="color:var(--ink3);font-size:10.5px"> −${r.vDesde}</span>`:''}</td>
+      <td class="num">${r.camino?fmt(r.camino):'—'}</td>
+      <td>${covCell(r.cob,cfg)}</td>
+      <td class="num mlsug">${r.sugPend?'pend.':(r.sug!=null?fmt(r.sug):'—')}</td>
+      <td>${r.disc?'<span class="num" style="color:var(--ink3)">0</span>':`<input class="qty ${manual?'hot':''}" type="number" min="0" step="1" value="${r.plan}" data-cod="${esc(r.cod)}">${r.cut&&!manual?'<div class="cutflag">recortado por espacio</div>':''}`}</td>
+      <td>${r.fl?esc(r.fl):'—'}</td>
+      <td class="num">${money(r.riesgoDia)}</td>
+      <td>${discBtn(r)}</td>
+    </tr>`;
+  }).join('');
+  $('#tblPlan').innerHTML = `<thead><tr>
+    <th>SKU</th><th>Producto</th><th>Dep</th><th>Nivel</th><th>Venta/día</th><th>Stock real</th><th>En camino</th><th>Cob. (d)</th><th>ML sug.</th><th>Enviar</th><th>Límite</th><th>$/día</th><th></th>
+  </tr></thead><tbody>${tr||'<tr><td colspan="13" class="empty">Nada que enviar con estos filtros.</td></tr>'}</tbody>
+  <tfoot><tr><td>${rows.length} SKUs</td><td></td><td></td><td></td><td>${fmt(rows.reduce((a,r)=>a+r.vd,0),0)}</td><td>${fmt(rows.reduce((a,r)=>a+r.stockReal,0))}</td><td>${fmt(rows.reduce((a,r)=>a+r.camino,0))}</td><td></td><td></td><td>${fmt(rows.reduce((a,r)=>a+r.plan,0))}</td><td></td><td>${money(rows.reduce((a,r)=>a+r.riesgoDia,0))}</td><td></td></tr></tfoot>`;
+  $$('#tblPlan input.qty').forEach(inp=>{
+    inp.onchange=()=>{ ST.manual[inp.dataset.cod]=+inp.value||0; save(); render(); };
+  });
+  $('#shipLog').innerHTML = ST.ships.length ? '<div style="font-weight:600;color:var(--ink);padding-bottom:4px">Despachos registrados</div>'+
+    ST.ships.map((s,i)=>{
+      const d=new Date(s.fecha);
+      return `<div class="shiprow"><span class="num">${d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})} ${d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span><span class="num">${fmt(s.tot)} u. · ${s.n} SKUs</span><span style="flex:1"></span><button class="dbtn" onclick="undoShip(${i})">deshacer</button></div>`;
+    }).join('') : '';
+}
+
+/* ---- acciones sobre el plan ---- */
+function planText(K){
+  const hoy=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+  const lin=t=>K.R.filter(r=>r.tramo===t&&r.plan>0).sort((a,b)=>b.plan-a.plan)
+    .map(r=>`${r.sku||r.cod}  ×${r.plan}  ${r.prod.split('|')[0].trim()}${r.vari?' — '+r.vari.split(',')[0].trim():''}`).join('\n');
+  return `ENVÍO FULL ${hoy}\n\nPEQUEÑOS Y MEDIANOS (${fmt(K.planPM)} u.)\n${lin('pm')||'—'}\n\nGRANDES Y EXTRAGRANDES (${fmt(K.planGX)} u.)\n${lin('gx')||'—'}\n\nTotal: ${fmt(K.planPM+K.planGX)} u. · ${fmt(K.m3,1)} m³`;
+}
+async function copiarPlan(K){
+  try{ await navigator.clipboard.writeText(planText(K)); toast('Plan copiado — listo para pegar en WhatsApp'); }
+  catch(e){ toast('No pude copiar: '+e.message); }
+}
+function despachar(K){
+  const items=K.R.filter(r=>r.plan>0);
+  const tot=items.reduce((a,r)=>a+r.plan,0);
+  if(!tot){ toast('El plan está vacío'); return; }
+  if(!confirm(`Marcar ${fmt(tot)} unidades (${items.length} SKUs) como despachadas? Pasan a "en camino" hasta que subas el próximo reporte.`)) return;
+  const snap={};
+  items.forEach(r=>{ snap[r.cod]=r.plan; ST.enviado[r.cod]=(ST.enviado[r.cod]||0)+r.plan; });
+  ST.ships.unshift({fecha:new Date().toISOString(), tot, n:items.length, items:snap});
+  ST.ships=ST.ships.slice(0,10);
+  ST.manual={};
+  save(); render();
+  toast('Despacho registrado');
+}
+function undoShip(idx){
+  const s=ST.ships[idx]; if(!s) return;
+  for(const[cod,q]of Object.entries(s.items)){ ST.enviado[cod]=Math.max(0,(ST.enviado[cod]||0)-q); if(!ST.enviado[cod])delete ST.enviado[cod]; }
+  ST.ships.splice(idx,1); save(); render(); toast('Despacho deshecho');
+}
+window.undoShip=undoShip;
+async function copiarRetiro(K){
+  const lin=K.excesos.map(r=>`${r.sku||r.cod}  ×${r.liberable}  ${r.prod.split('|')[0].trim()}${r.vari?' — '+r.vari.split(',')[0].trim():''}`).join('\n');
+  const txt=`RETIRO DE FULL ${new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})}\n\n${lin}\n\nTotal: ${fmt(K.excesos.reduce((a,r)=>a+r.liberable,0))} u.`;
+  try{ await navigator.clipboard.writeText(txt); toast('Lista de retiro copiada'); }
+  catch(e){ toast('No pude copiar: '+e.message); }
+}
+
+function renderQuiebre(K){
+  $('#cntQuiebre').textContent=K.quiebres.length;
+  const cfg=ST.cfg;
+  const tr=K.quiebres.map(r=>`<tr>
+    <td><span class="sku">${esc(r.sku||r.cod)}</span></td>
+    <td class="prod">${esc(r.prod)}<span class="var">${esc(r.vari)}</span></td>
+    <td><span class="pill ${r.tramo}">${r.tam[0]}</span></td>
+    <td>${nivelPill(r.nivel)}</td>
+    <td class="num">${fmt(r.vd,1)}</td>
+    <td class="num">${fmt(r.disponible)}</td>
+    <td><span class="cov ${covClass(r.cob,cfg)}">${covTxt(r.cob)}</span></td>
+    <td class="num">${money(r.riesgoDia)}</td>
+    <td class="num">${money(r.riesgoDia*30)}</td>
+    <td class="num">${fmt(r.plan)}</td>
+    <td style="text-align:left;max-width:260px;white-space:normal;font-size:11px;color:var(--ink2)">${esc(r.obs)}</td>
+  </tr>`).join('');
+  $('#tblQuiebre').innerHTML=`<thead><tr><th>SKU</th><th>Producto</th><th>Dep</th><th>Nivel</th><th>Venta/día</th><th>Disponible</th><th>Cob. (d)</th><th>Pierde $/día</th><th>Proy. 30d</th><th>Plan</th><th>Observación ML</th></tr></thead>
+  <tbody>${tr||'<tr><td colspan="11" class="empty">Sin quiebres activos. 👌</td></tr>'}</tbody>`;
+}
+
+function renderExceso(K){
+  $('#cntExceso').textContent=K.excesos.length;
+  const bR=$('#btnRetiro'); if(bR) bR.onclick=()=>copiarRetiro(K);
+  const totLib=K.excesos.reduce((a,r)=>a+r.liberable,0);
+  const tr=K.excesos.map(r=>`<tr class="${r.disc?'discRow':''}">
+    <td><span class="sku">${esc(r.sku||r.cod)}</span></td>
+    <td class="prod">${esc(r.prod)}<span class="var">${esc(r.vari)}</span></td>
+    <td><span class="pill ${r.tramo}">${r.tam[0]}</span>${r.disc?' <span class="pill disc">No vuelve</span>':''}</td>
+    <td class="num">${fmt(r.stockReal)}</td>
+    <td class="num">${r.camino?fmt(r.camino):'—'}</td>
+    <td class="num">${fmt(r.vd,2)}</td>
+    <td><span class="cov ${covClass(r.cob,ST.cfg)}">${covTxt(r.cob)}</span></td>
+    <td class="num" style="font-weight:600">${fmt(r.liberable)}</td>
+    <td class="num">${fmt(r.liberable*r.vol/1e6,2)} m³</td>
+    <td style="text-align:left;max-width:280px;white-space:normal;font-size:11px;color:var(--ink2)">${esc(r.obs)}</td>
+    <td>${discBtn(r)}</td>
+  </tr>`).join('');
+  $('#tblExceso').innerHTML=`<thead><tr><th>SKU</th><th>Producto</th><th>Dep</th><th>Aptas</th><th>En camino</th><th>Venta/día</th><th>Cob. (d)</th><th>Liberable</th><th>Volumen</th><th>Observación ML</th><th></th></tr></thead>
+  <tbody>${tr||'<tr><td colspan="11" class="empty">Sin excedentes relevantes.</td></tr>'}</tbody>
+  <tfoot><tr><td>Total recuperable</td><td></td><td></td><td></td><td></td><td></td><td></td><td>${fmt(totLib)} u.</td><td>${fmt(K.excesos.reduce((a,r)=>a+r.liberable*r.vol,0)/1e6,1)} m³</td><td></td><td></td></tr></tfoot>`;
+}
+
+function exportNuevos(K){
+  const wb=XLSX.utils.book_new();
+  const head=['Código ML','SKU','Producto','Variante','Tamaño','Depósito','Enviar (u.)','Mín. "Llega hoy"','Vol. unit (L)','Volumen envío (m³)','Observación ML'];
+  const fila=r=>[r.cod,r.sku,r.prod,r.vari,r.tam,r.tramo==='pm'?'PyM':'GyE',r.plan||0,r.minHoy||'',+(r.vol/1e3).toFixed(2),+(r.plan*r.vol/1e6).toFixed(3),r.obs];
+  const cols=[{wch:12},{wch:14},{wch:52},{wch:34},{wch:9},{wch:9},{wch:10},{wch:14},{wch:11},{wch:14},{wch:46}];
+  const conPlan=K.nuevos.filter(r=>r.plan>0).sort((a,b)=>b.plan-a.plan);
+  const ws1=XLSX.utils.aoa_to_sheet([head].concat(conPlan.map(fila))); ws1['!cols']=cols;
+  XLSX.utils.book_append_sheet(wb,ws1,'Con envío');
+  const ws2=XLSX.utils.aoa_to_sheet([head].concat(K.nuevos.map(fila))); ws2['!cols']=cols;
+  XLSX.utils.book_append_sheet(wb,ws2,'Todos los nuevos');
+  const res=[['Nuevos ingresos',''],['Fecha',new Date().toLocaleString('es-AR')],['Reporte base',ST.snapLabel],
+    ['SKUs nuevos detectados',K.nuevos.length],['SKUs con cantidad cargada',conPlan.length],
+    ['Unidades a enviar',conPlan.reduce((a,r)=>a+r.plan,0)],
+    ['Volumen (m³)',+(conPlan.reduce((a,r)=>a+r.plan*r.vol,0)/1e6).toFixed(2)]];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(res),'Resumen');
+  XLSX.writeFile(wb,`Nuevos_Full_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('Nuevos ingresos exportados');
+}
+
+function renderNuevos(K){
+  $('#cntNuevos').textContent=K.nuevos.length;
+  const bE=$('#btnExpNuevos'); if(bE) bE.onclick=()=>exportNuevos(K);
+  let rows=K.nuevos;
+  const q=($('#fSearchNuevos').value||'').toLowerCase();
+  if(q) rows=rows.filter(r=>(r.sku+' '+r.prod+' '+r.vari+' '+r.cod).toLowerCase().includes(q));
+  const totPlan=rows.reduce((a,r)=>a+r.plan,0);
+  const tr=rows.map(r=>{
+    const manual=ST.manual[r.cod]!=null;
+    return `<tr>
+      <td><span class="sku">${esc(r.sku||r.cod)}</span></td>
+      <td class="prod">${esc(r.prod)}<span class="var">${esc(r.vari)}</span></td>
+      <td><span class="pill ${r.tramo}">${r.tam[0]}</span></td>
+      <td class="num">${fmt(r.vol/1e3,1)} L</td>
+      <td class="num">${r.minHoy?fmt(r.minHoy):'—'}</td>
+      <td><input class="qty ${manual?'hot':''}" type="number" min="0" step="1" value="${r.plan}" data-cod="${esc(r.cod)}"></td>
+      <td class="num">${r.plan?fmt(r.plan*r.vol/1e6,2)+' m³':'—'}</td>
+      <td style="text-align:left;max-width:300px;white-space:normal;font-size:11px;color:var(--ink2)">${esc(r.obs)}</td>
+      <td>${discBtn(r)}</td>
+    </tr>`;
+  }).join('');
+  $('#tblNuevos').innerHTML=`<thead><tr><th>SKU</th><th>Producto</th><th>Dep</th><th>Vol. unit.</th><th>Mín. "Llega hoy"</th><th>Enviar</th><th>Volumen</th><th>Observación ML</th><th></th></tr></thead>
+  <tbody>${tr||'<tr><td colspan="9" class="empty">No hay publicaciones sin historial en este reporte.</td></tr>'}</tbody>
+  <tfoot><tr><td>${rows.length} SKUs</td><td></td><td></td><td></td><td></td><td>${fmt(totPlan)}</td><td>${fmt(rows.reduce((a,r)=>a+r.plan*r.vol,0)/1e6,2)} m³</td><td></td><td></td></tr></tfoot>`;
+  $$('#tblNuevos input.qty').forEach(inp=>{
+    inp.onchange=()=>{ const v=+inp.value||0; if(v>0) ST.manual[inp.dataset.cod]=v; else delete ST.manual[inp.dataset.cod]; save(); render(); };
+  });
+}
+
+/* ---- Salud de stock: proyección, rotación, sanidad ---- */
+function project(K, days){
+  const lead=ST.cfg.lead, out={};
+  for(const scen of ['base','plan']){
+    const st=K.R.filter(r=>!r.disc).map(r=>({t:r.tramo,s:r.stockReal,vd:r.vd,
+      arr:[[3,r.camino],[lead,scen==='plan'?r.plan:0]]}));
+    const pm=[],gx=[];
+    for(let d=0;d<=days;d++){
+      let a=0,b=0;
+      for(const x of st){
+        for(const ar of x.arr) if(ar[0]===d) x.s+=ar[1];
+        if(x.t==='pm')a+=x.s; else b+=x.s;
+        x.s=Math.max(0,x.s-x.vd);
+      }
+      pm.push(a);gx.push(b);
+    }
+    out[scen]={pm,gx};
+  }
+  return out;
+}
+function lineChart(P,days){
+  const W=1100,H=240,pl=64,pr=12,pt=10,pb=26;
+  const mx=Math.max(...P.plan.pm,...P.plan.gx,1);
+  const X=i=>pl+i/days*(W-pl-pr), Y=v=>pt+(1-v/mx)*(H-pt-pb);
+  const path=(a)=>a.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ');
+  let grid='';
+  for(let g=0;g<=4;g++){const v=mx*g/4,y=Y(v);
+    grid+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
+    <text x="${pl-8}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--ink3)">${fmt(Math.round(v))}</text>`;}
+  let xlab='';
+  for(let d=0;d<=days;d+=15){xlab+=`<text x="${X(d)}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--ink3)">día ${d}</text>`;}
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    ${grid}${xlab}
+    <path d="${path(P.base.pm)}" fill="none" stroke="#3483FA" stroke-width="2"/>
+    <path d="${path(P.plan.pm)}" fill="none" stroke="#3483FA" stroke-width="2" stroke-dasharray="5 4" opacity=".55"/>
+    <path d="${path(P.base.gx)}" fill="none" stroke="#FF8C42" stroke-width="2"/>
+    <path d="${path(P.plan.gx)}" fill="none" stroke="#FF8C42" stroke-width="2" stroke-dasharray="5 4" opacity=".55"/>
+  </svg>`;
+}
+function renderSalud(K){
+  const cfg=ST.cfg;
+  const act=K.R.filter(r=>!r.disc);
+  const vdT=act.reduce((a,r)=>a+r.vd,0)||1;
+  const stockU=act.reduce((a,r)=>a+r.disponible,0);
+  const stockAptas=act.reduce((a,r)=>a+r.stockReal,0);
+  const pvp=act.reduce((a,r)=>a+r.disponible*r.pu,0);
+  const dias=stockU/vdT, rot=365/Math.max(dias,0.1);
+  const u30T=act.reduce((a,r)=>a+r.u30,0);
+  const sellTh=u30T/Math.max(u30T+stockAptas,1)*100;
+  const fill=act.filter(r=>r.disponible>0).reduce((a,r)=>a+r.vd,0)/vdT*100;
+  const muertos=act.filter(r=>r.vd===0&&r.stockReal>0);
+  const muertoU=muertos.reduce((a,r)=>a+r.stockReal,0);
+  const muertoPVP=muertos.reduce((a,r)=>a+r.stockReal*(r.pu||0),0);
+  const q7=act.filter(r=>r.vd>0&&(r.disponible+r.plan)/r.vd<7).length;
+  const q14=act.filter(r=>r.vd>0&&(r.disponible+r.plan)/r.vd<14).length;
+  const q30=act.filter(r=>r.vd>0&&(r.disponible+r.plan)/r.vd<30).length;
+  const byDep=t=>{const g=act.filter(r=>r.tramo===t);const s=g.reduce((a,r)=>a+r.disponible,0);const v=g.reduce((a,r)=>a+r.vd,0)||1;return s/v;};
+
+  const kpi=(l,v,s,cls='')=>`<div class="kpi"><div class="kl">${l}</div><div class="kv ${cls}">${v}</div><div class="ks">${s||''}</div></div>`;
+  $('#saludKpis').innerHTML=
+    kpi('Días de stock (mix)', fmt(dias,0)+' d', 'PyM '+fmt(byDep('pm'),0)+' d · GyE '+fmt(byDep('gx'),0)+' d', dias<cfg.cover?'warn':'ok')+
+    kpi('Rotación anualizada', fmt(rot,1)+'×', 'vueltas del stock por año')+
+    kpi('Sell-through 30d', fmt(sellTh,0)+'%', 'vendido / (vendido + apto)', sellTh>60?'ok':sellTh>35?'warn':'bad')+
+    kpi('Demanda cubierta hoy', fmt(fill,0)+'%', 'de tu venta diaria tiene stock', fill>90?'ok':fill>70?'warn':'bad')+
+    kpi('Stock valuado (PVP)', money(pvp), fmt(stockU)+' u. en Full')+
+    kpi('Stock muerto', fmt(muertoU)+' u.', money(muertoPVP)+' sin ventas 30d', muertoU>0?'warn':'ok')+
+    kpi('Quiebres si no reponés', q7+' / '+q14+' / '+q30, 'SKUs quebrados a 7 / 14 / 30 días', q7>0?'bad':q14>0?'warn':'ok');
+
+  // proyección
+  const P=project(K,60);
+  $('#projChart').innerHTML=lineChart(P,60);
+  $('#projLegend').innerHTML=`<span style="color:#3483FA">━ PyM</span> · <span style="color:#FF8C42">━ GyE</span> · ┅ con plan`;
+
+  // histograma cobertura (SKUs con venta)
+  const buckets=[['Quiebre',0,0.001],['&lt;7 d',0.001,7],['7–'+cfg.cover,7,cfg.cover],[cfg.cover+'–45',cfg.cover,45],['45–'+cfg.exc,45,cfg.exc],['&gt;'+cfg.exc,cfg.exc,1e9]];
+  const conVenta=act.filter(r=>r.vd>0);
+  const cols=['var(--crit)','var(--bad)','var(--warn)','var(--ok)','#5A8F72','var(--ink3)'];
+  const bmax=Math.max(...buckets.map(b=>conVenta.filter(r=>r.cob>=b[1]&&r.cob<b[2]).length),1);
+  $('#covHist').innerHTML='<div style="display:flex;align-items:flex-end;gap:8px;height:150px;padding-top:10px">'+
+    buckets.map((b,i)=>{
+      const n=conVenta.filter(r=>r.cob>=b[1]&&r.cob<b[2]).length;
+      return `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%">
+        <div class="num" style="font-size:12px;font-weight:600">${n}</div>
+        <div style="width:100%;background:${cols[i]};border-radius:2px 2px 0 0;height:${Math.max(3,n/bmax*100)}%"></div>
+        <div style="font-size:10px;color:var(--ink2)">${b[0]}</div></div>`;
+    }).join('')+'</div>';
+
+  // composición unidades / PVP
+  const segs=[
+    ['Riesgo (&lt; objetivo)', r=>r.vd>0&&r.cob<cfg.cover, 'var(--bad)'],
+    ['Sano', r=>r.vd>0&&r.cob>=cfg.cover&&r.cob<=cfg.exc, 'var(--ok)'],
+    ['Excedente (&gt;'+cfg.exc+'d)', r=>r.vd>0&&r.cob>cfg.exc, 'var(--warn)'],
+    ['Muerto (sin venta)', r=>r.vd===0, 'var(--ink3)']
+  ];
+  const bar=(vals,total,fmt$)=>'<div style="display:flex;height:22px;border-radius:3px;overflow:hidden;margin:6px 0">'+
+    vals.map((v,i)=>v>0?`<div style="width:${v/total*100}%;background:${segs[i][2]}" title="${segs[i][0]}"></div>`:'').join('')+'</div>';
+  const uVals=segs.map(s=>act.filter(r=>r.disponible>0&&s[1](r)).reduce((a,r)=>a+r.disponible,0));
+  const pVals=segs.map(s=>act.filter(r=>r.disponible>0&&s[1](r)).reduce((a,r)=>a+r.disponible*r.pu,0));
+  const uT=uVals.reduce((a,b)=>a+b,0)||1, pT=pVals.reduce((a,b)=>a+b,0)||1;
+  $('#healthBars').innerHTML=
+    `<div style="font-size:11px;color:var(--ink2);margin-top:8px">Unidades · ${fmt(uT)}</div>${bar(uVals,uT)}
+     <div style="font-size:11px;color:var(--ink2)">PVP · ${money(pT)}</div>${bar(pVals,pT)}
+     <div style="display:flex;flex-direction:column;gap:5px;margin-top:10px;font-size:12px">`+
+    segs.map((s,i)=>`<div style="display:flex;justify-content:space-between"><span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s[2]};margin-right:6px"></span>${s[0]}</span><span class="num">${fmt(uVals[i])} u. · ${money(pVals[i])} · ${fmt(pVals[i]/pT*100,0)}%</span></div>`).join('')+'</div>';
+
+  // tabla: rotación por depósito y clase ABC
+  const rowsOf=(label,g)=>{
+    const s=g.reduce((a,r)=>a+r.disponible,0), sa=g.reduce((a,r)=>a+r.stockReal,0);
+    const v=g.reduce((a,r)=>a+r.vd,0), u=g.reduce((a,r)=>a+r.u30,0);
+    const p=g.reduce((a,r)=>a+r.disponible*r.pu,0), d=v>0?s/v:Infinity;
+    return `<tr><td style="text-align:left;font-weight:600">${label}</td>
+      <td class="num">${g.length}</td><td class="num">${fmt(s)}</td><td class="num">${money(p)}</td>
+      <td class="num">${fmt(v,1)}</td><td class="num">${isFinite(d)?fmt(d,0):'∞'}</td>
+      <td class="num">${isFinite(d)&&d>0?fmt(365/d,1)+'×':'—'}</td>
+      <td class="num">${fmt(u/Math.max(u+sa,1)*100,0)}%</td></tr>`;
+  };
+  $('#tblSalud').innerHTML=`<thead><tr><th style="text-align:left">Segmento</th><th>SKUs</th><th>Stock u.</th><th>PVP</th><th>Venta/día</th><th>Días</th><th>Rotación</th><th>Sell-th 30d</th></tr></thead><tbody>`+
+    rowsOf('Pequeños y medianos',act.filter(r=>r.tramo==='pm'))+
+    rowsOf('Grandes y extragrandes',act.filter(r=>r.tramo==='gx'))+
+    rowsOf('Clase A',act.filter(r=>r.abc==='A'))+
+    rowsOf('Clase B',act.filter(r=>r.abc==='B'))+
+    rowsOf('Clase C',act.filter(r=>r.abc==='C'))+
+    rowsOf('Total',act)+'</tbody>';
+}
+
+function renderAbc(K){
+  const g={A:{n:0,vb:0,u:0,cob:[]},B:{n:0,vb:0,u:0,cob:[]},C:{n:0,vb:0,u:0,cob:[]}};
+  K.abc.forEach(r=>{const x=g[r.abc];x.n++;x.vb+=r.vb30;x.u+=r.disponible;if(isFinite(r.cob)&&r.vd>0)x.cob.push(r.cob);});
+  const med=a=>a.length?a.sort((x,y)=>x-y)[Math.floor(a.length/2)]:null;
+  $('#abcCards').innerHTML=['A','B','C'].map(k=>{
+    const x=g[k];
+    return `<div class="depot"><div class="dhead"><span class="dname">Clase ${k}</span><span class="dcap">${x.n} SKUs</span></div>
+      <div style="font-family:var(--mono);font-size:13px;line-height:1.9">
+      Facturación 30d: <b>${money(x.vb)}</b> (${fmt(x.vb/K.vbTot*100,0)}%)<br>
+      Stock en Full: <b>${fmt(x.u)}</b> u.<br>
+      Cobertura mediana: <b>${x.cob.length?fmt(med(x.cob),0)+' d':'—'}</b></div></div>`;
+  }).join('');
+  const tr=K.abc.filter(r=>r.vb30>0).slice(0,120).map(r=>`<tr>
+    <td><span class="pill ${r.abc==='A'?'suf':r.abc==='B'?'baj':'na'}">${r.abc}</span></td>
+    <td><span class="sku">${esc(r.sku||r.cod)}</span></td>
+    <td class="prod">${esc(r.prod)}<span class="var">${esc(r.vari)}</span></td>
+    <td class="num">${money(r.vb30)}</td>
+    <td class="num">${fmt(r.u30)}</td>
+    <td class="num">${fmt(r.vd,1)}</td>
+    <td class="num">${fmt(r.disponible)}</td>
+    <td><span class="cov ${covClass(r.cob,ST.cfg)}">${covTxt(r.cob)}</span></td>
+    <td class="num">${fmt(r.plan)}</td>
+  </tr>`).join('');
+  $('#tblAbc').innerHTML=`<thead><tr><th>ABC</th><th>SKU</th><th>Producto</th><th>Facturación 30d</th><th>Unid. 30d</th><th>Venta/día</th><th>Disponible</th><th>Cob. (d)</th><th>Plan</th></tr></thead><tbody>${tr}</tbody>`;
+}
+
+function render(){
+  if(!ST.rows.length) return;
+  const K=compute();
+  $('#snapInfo').textContent = ST.snapLabel ? ST.snapLabel.replace('Descargado','Reporte') : 'Reporte cargado';
+  renderDepots(K); renderKpis(K); fechaChips(K);
+  renderPlan(K); renderQuiebre(K); renderExceso(K); renderNuevos(K); renderSalud(K); renderAbc(K);
+}
+
+/* ================= EXPORT ================= */
+function exportPlan(K){
+  const wb=XLSX.utils.book_new();
+  const mk=(tramo)=>{
+    const rows=K.R.filter(r=>r.tramo===tramo&&r.plan>0).sort((a,b)=>b.riesgoDia-a.riesgoDia);
+    return [['Código ML','SKU','Producto','Variante','Tamaño','Enviar (u.)','Fecha límite','Nivel','Cobertura (d)','ML sugería']].concat(
+      rows.map(r=>[r.cod,r.sku,r.prod,r.vari,r.tam,r.plan,r.fl||'',r.nivel,isFinite(r.cob)?+r.cob.toFixed(1):'',r.sug??''])
+    );
+  };
+  const wsPM=XLSX.utils.aoa_to_sheet(mk('pm')); wsPM['!cols']=[{wch:12},{wch:14},{wch:52},{wch:34},{wch:9},{wch:10},{wch:11},{wch:10},{wch:12},{wch:10}];
+  const wsGX=XLSX.utils.aoa_to_sheet(mk('gx')); wsGX['!cols']=wsPM['!cols'];
+  XLSX.utils.book_append_sheet(wb,wsPM,'PyM');
+  XLSX.utils.book_append_sheet(wb,wsGX,'GyE');
+  const res=[['Resumen del plan',''],['Fecha',new Date().toLocaleString('es-AR')],['Reporte base',ST.snapLabel],
+    ['Unidades PyM',K.planPM],['Unidades GyE',K.planGX],['Volumen total (m³)',+K.m3.toFixed(2)],
+    ['Espacio libre PyM post-envío',ST.cfg.capPM-K.occ.pm-K.planPM],['Espacio libre GyE post-envío',ST.cfg.capGX-K.occ.gx-K.planGX]];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(res),'Resumen');
+  XLSX.writeFile(wb,`Plan_Full_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('Plan exportado');
+}
+
+/* ================= UI wiring ================= */
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+
+async function handleFile(file){
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const p=parseReport(wb);
+    ST.rows=p.rows; ST.snapDate=p.snapDate; ST.snapLabel=p.snapLabel;
+    ST.dispPM=p.dispPM; ST.dispGX=p.dispGX; ST.manual={}; ST.live=null; ST.enviado={};
+    save();
+    $('#dropZone').style.display='none'; $('#app').style.display='block';
+    $('#btnSync').style.display=''; $('#btnReload').style.display='';
+    render();
+    toast(`Reporte cargado: ${p.rows.length} productos`);
+    syncVentas();
+  }catch(e){ alert('No pude leer el archivo: '+e.message); }
+}
+
+const dz=$('#dropZone');
+['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();if(ev==='drop'||e.target===document.body)dz.classList.remove('over');}));
+document.addEventListener('drop',e=>{ const f=e.dataTransfer?.files?.[0]; if(f) handleFile(f); });
+$('#fileInput').onchange=e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); };
+$('#btnReload').onclick=()=>$('#fileInput').click();
+$('#btnSync').onclick=syncVentas;
+
+$('#tabs').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  $$('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  ['plan','quiebre','exceso','nuevos','salud','abc'].forEach(t=>$('#tab-'+t).style.display=b.dataset.tab===t?'':'none');
+});
+$('#filters').addEventListener('click',e=>{
+  const b=e.target.closest('.chip'); if(!b) return;
+  const f=b.dataset.f, v=b.dataset.v;
+  if(f==='depot') ST.filters.depot = ST.filters.depot===v?null:v;
+  if(f==='need') ST.filters.need = !ST.filters.need;
+  if(f==='disc') ST.filters.disc = !ST.filters.disc;
+  if(f==='fecha') ST.filters.fecha = ST.filters.fecha===v?null:v;
+  $$('#filters .chip').forEach(c=>{
+    const cf=c.dataset.f,cv=c.dataset.v;
+    c.classList.toggle('on', (cf==='depot'&&ST.filters.depot===cv)||(cf==='need'&&ST.filters.need)||(cf==='disc'&&ST.filters.disc)||(cf==='fecha'&&ST.filters.fecha===cv));
+  });
+  render();
+});
+$('#fSearchNuevos').addEventListener('input',()=>render());
+$('#fSearch').addEventListener('input',e=>{ST.filters.search=e.target.value;render();});
+
+['Lead','Cover','Exc','Factor','CapPM','CapGX'].forEach(k=>{
+  const el=$('#cfg'+k), key=k.charAt(0).toLowerCase()+k.slice(1);
+  el.addEventListener('change',()=>{ ST.cfg[key]=el.value===''?DEFAULTS[key]:+el.value; save(); render(); });
+});
+function fillCfg(){ $('#cfgLead').value=ST.cfg.lead; $('#cfgCover').value=ST.cfg.cover; $('#cfgExc').value=ST.cfg.exc; $('#cfgFactor').value=ST.cfg.factor||0; $('#cfgCapPM').value=ST.cfg.capPM; $('#cfgCapGX').value=ST.cfg.capGX; }
+
+/* ================= init ================= */
+if(restore()){
+  fillCfg();
+  $('#dropZone').style.display='none'; $('#app').style.display='block';
+  $('#btnSync').style.display=''; $('#btnReload').style.display='';
+  render(); syncVentas();
+}else{
+  fillCfg();
+}
+</script>
+</body>
+</html>
