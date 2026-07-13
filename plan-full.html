@@ -135,6 +135,14 @@ td input.qty.hot{border-color:var(--acc);background:var(--accbg);font-weight:600
 td .trend{font-size:11px}
 .trend.up{color:var(--ok)}.trend.dn{color:var(--bad)}
 td .mlsug{color:var(--ink3)}
+td .mlsug .sugval{color:var(--ink2);font-weight:600}
+.sugBtn{font-size:10px;font-weight:700;color:var(--acc);background:var(--accbg);border-radius:4px;padding:1px 6px;margin-left:5px;vertical-align:1px}
+.sugBtn:hover{background:var(--acc);color:#fff}
+.sugOn{font-size:11px;font-weight:700;color:var(--ok);margin-left:5px}
+.qtyWrap{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+input.proyDate{width:98px;border:1px solid var(--line2);border-radius:5px;padding:3px 5px;font-size:10.5px;color:var(--ink3);background:#fff}
+input.proyDate:focus{outline:none;border-color:#8348C7}
+input.proyDate.on{border-color:#8348C7;background:#F3EBFD;color:#8348C7;font-weight:600}
 tr.cut td .cutflag{font-size:10.5px;color:var(--warn)}
 tr.discRow td{opacity:.5}
 tr.discRow td .dbtn{opacity:1}
@@ -321,15 +329,17 @@ let ST = {
   manual: {},          // envíos editados a mano {cod:qty}
   disc: {},            // productos que no vuelven a ingresar {cod:true}
   enviado: {},         // despachado localmente, aún no reflejado en el reporte {cod:qty}
-  ships: []            // historial de despachos [{fecha, tot, items}]
+  ships: [],           // historial de despachos [{fecha, tot, items}]
+  proyFecha: {}        // fecha proyectada de disponibilidad por SKU {cod:'YYYY-MM-DD'}
 };
+const dmy = s=>{ if(!s) return ''; const [y,m,d]=s.split('-'); return `${d}/${m}`; };
 
 /* ================= PERSISTENCIA ================= */
 function save(){
   try{
     localStorage.setItem(LSK, JSON.stringify({
       rows:ST.rows, snapDate:ST.snapDate?ST.snapDate.toISOString():null, snapLabel:ST.snapLabel,
-      dispPM:ST.dispPM, dispGX:ST.dispGX, cfg:ST.cfg, manual:ST.manual, disc:ST.disc, enviado:ST.enviado, ships:ST.ships
+      dispPM:ST.dispPM, dispGX:ST.dispGX, cfg:ST.cfg, manual:ST.manual, disc:ST.disc, enviado:ST.enviado, ships:ST.ships, proyFecha:ST.proyFecha
     }));
   }catch(e){}
 }
@@ -346,6 +356,7 @@ function restore(){
       ST.disc = r.disc||{};
       ST.enviado = r.enviado||{};
       ST.ships = r.ships||[];
+      ST.proyFecha = r.proyFecha||{};
       return true;
     }
   }catch(e){}
@@ -569,9 +580,10 @@ const covCell = (c,cfg)=>{
   return `<span class="cov ${covClass(c,cfg)}">${covTxt(c)}</span>${od?`<div style="font-size:10px;color:var(--ink3)">agota ${od}</div>`:''}`;
 };
 window.toggleDisc = cod=>{
-  if(ST.disc[cod]) delete ST.disc[cod]; else { ST.disc[cod]=true; delete ST.manual[cod]; }
+  if(ST.disc[cod]) delete ST.disc[cod]; else { ST.disc[cod]=true; delete ST.manual[cod]; delete ST.proyFecha[cod]; }
   save(); render();
 };
+window.useSugML = (cod, val)=>{ ST.manual[cod]=val; save(); render(); };
 const discBtn = r=>`<button class="dbtn ${r.disc?'on':''}" onclick="toggleDisc('${esc(r.cod)}')" title="${r.disc?'Volver a reponer este producto':'Marcar: este producto no vuelve a ingresar'}">${r.disc?'no vuelve ↩':'⊘'}</button>`;
 const nivelPill = n=>{
   const m={'Sin stock':'sin','Crítico':'cri','Bajo':'baj','Medio':'med','Suficiente':'suf'};
@@ -658,7 +670,7 @@ function renderPlan(K){
     <button class="xbtn" id="btnExport">Exportar Excel ↓</button>
     ${dl}`;
   $('#btnExport').onclick=()=>exportPlan(K);
-  $('#btnResetManual').onclick=()=>{ST.manual={};save();render();};
+  $('#btnResetManual').onclick=()=>{ST.manual={};ST.proyFecha={};save();render();};
   $('#btnCopiar').onclick=()=>copiarPlan(K);
   $('#btnDespachar').onclick=()=>despachar(K);
 
@@ -674,8 +686,8 @@ function renderPlan(K){
       <td class="num">${fmt(r.stockReal)}${r.vDesde?`<span style="color:var(--ink3);font-size:10.5px"> −${r.vDesde}</span>`:''}</td>
       <td class="num">${r.camino?fmt(r.camino):'—'}</td>
       <td>${covCell(r.cob,cfg)}</td>
-      <td class="num mlsug">${r.sugPend?'pend.':(r.sug!=null?fmt(r.sug):'—')}</td>
-      <td>${r.disc?'<span class="num" style="color:var(--ink3)">0</span>':`<input class="qty ${manual?'hot':''}" type="number" min="0" step="1" value="${r.plan}" data-cod="${esc(r.cod)}">${r.cut&&!manual?'<div class="cutflag">recortado por espacio</div>':''}`}</td>
+      <td class="num mlsug">${r.sugPend?'pend.':(r.sug!=null?`<span class="sugval">${fmt(r.sug)}</span>${r.disc?'':(ST.manual[r.cod]===r.sug?'<span class="sugOn">✓</span>':`<button class="sugBtn" onclick="useSugML('${esc(r.cod)}',${r.sug})">usar</button>`)}`:'—')}</td>
+      <td>${r.disc?'<span class="num" style="color:var(--ink3)">0</span>':`<div class="qtyWrap"><input class="qty ${manual?'hot':''}" type="number" min="0" step="1" value="${r.plan}" data-cod="${esc(r.cod)}"><input type="date" class="proyDate ${ST.proyFecha[r.cod]?'on':''}" data-proycod="${esc(r.cod)}" value="${ST.proyFecha[r.cod]||''}" title="Proyectá para cuándo vas a poder tener lista esta cantidad — reemplaza el envío calculado">${r.cut&&!manual?'<div class="cutflag">recortado por espacio</div>':''}</div>`}</td>
       <td>${r.fl?esc(r.fl):'—'}</td>
       <td class="num">${money(r.riesgoDia)}</td>
       <td>${discBtn(r)}</td>
@@ -688,6 +700,16 @@ function renderPlan(K){
   $$('#tblPlan input.qty').forEach(inp=>{
     inp.onchange=()=>{ ST.manual[inp.dataset.cod]=+inp.value||0; save(); render(); };
   });
+  $$('#tblPlan input.proyDate').forEach(inp=>{
+    inp.onchange=()=>{
+      const cod=inp.dataset.proycod, v=inp.value;
+      if(v){
+        if(ST.manual[cod]==null){ const row=K.R.find(x=>x.cod===cod); if(row) ST.manual[cod]=row.plan; }
+        ST.proyFecha[cod]=v;
+      } else delete ST.proyFecha[cod];
+      save(); render();
+    };
+  });
   $('#shipLog').innerHTML = ST.ships.length ? '<div style="font-weight:600;color:var(--ink);padding-bottom:4px">Despachos registrados</div>'+
     ST.ships.map((s,i)=>{
       const d=new Date(s.fecha);
@@ -699,7 +721,7 @@ function renderPlan(K){
 function planText(K){
   const hoy=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
   const lin=t=>K.R.filter(r=>r.tramo===t&&r.plan>0).sort((a,b)=>b.plan-a.plan)
-    .map(r=>`${r.sku||r.cod}  ×${r.plan}  ${r.prod.split('|')[0].trim()}${r.vari?' — '+r.vari.split(',')[0].trim():''}`).join('\n');
+    .map(r=>`${r.sku||r.cod}  ×${r.plan}  ${r.prod.split('|')[0].trim()}${r.vari?' — '+r.vari.split(',')[0].trim():''}${ST.proyFecha[r.cod]?`  (proyectado ${dmy(ST.proyFecha[r.cod])})`:''}`).join('\n');
   return `ENVÍO FULL ${hoy}\n\nPEQUEÑOS Y MEDIANOS (${fmt(K.planPM)} u.)\n${lin('pm')||'—'}\n\nGRANDES Y EXTRAGRANDES (${fmt(K.planGX)} u.)\n${lin('gx')||'—'}\n\nTotal: ${fmt(K.planPM+K.planGX)} u. · ${fmt(K.m3,1)} m³`;
 }
 async function copiarPlan(K){
@@ -715,7 +737,7 @@ function despachar(K){
   items.forEach(r=>{ snap[r.cod]=r.plan; ST.enviado[r.cod]=(ST.enviado[r.cod]||0)+r.plan; });
   ST.ships.unshift({fecha:new Date().toISOString(), tot, n:items.length, items:snap});
   ST.ships=ST.ships.slice(0,10);
-  ST.manual={};
+  ST.manual={}; ST.proyFecha={};
   save(); render();
   toast('Despacho registrado');
 }
@@ -986,11 +1008,11 @@ function exportPlan(K){
   const wb=XLSX.utils.book_new();
   const mk=(tramo)=>{
     const rows=K.R.filter(r=>r.tramo===tramo&&r.plan>0).sort((a,b)=>b.riesgoDia-a.riesgoDia);
-    return [['Código ML','SKU','Producto','Variante','Tamaño','Enviar (u.)','Fecha límite','Nivel','Cobertura (d)','ML sugería']].concat(
-      rows.map(r=>[r.cod,r.sku,r.prod,r.vari,r.tam,r.plan,r.fl||'',r.nivel,isFinite(r.cob)?+r.cob.toFixed(1):'',r.sug??''])
+    return [['Código ML','SKU','Producto','Variante','Tamaño','Enviar (u.)','Fecha proyectada','Fecha límite','Nivel','Cobertura (d)','ML sugería']].concat(
+      rows.map(r=>[r.cod,r.sku,r.prod,r.vari,r.tam,r.plan,ST.proyFecha[r.cod]?dmy(ST.proyFecha[r.cod]):'',r.fl||'',r.nivel,isFinite(r.cob)?+r.cob.toFixed(1):'',r.sug??''])
     );
   };
-  const wsPM=XLSX.utils.aoa_to_sheet(mk('pm')); wsPM['!cols']=[{wch:12},{wch:14},{wch:52},{wch:34},{wch:9},{wch:10},{wch:11},{wch:10},{wch:12},{wch:10}];
+  const wsPM=XLSX.utils.aoa_to_sheet(mk('pm')); wsPM['!cols']=[{wch:12},{wch:14},{wch:52},{wch:34},{wch:9},{wch:10},{wch:12},{wch:11},{wch:10},{wch:12},{wch:10}];
   const wsGX=XLSX.utils.aoa_to_sheet(mk('gx')); wsGX['!cols']=wsPM['!cols'];
   XLSX.utils.book_append_sheet(wb,wsPM,'PyM');
   XLSX.utils.book_append_sheet(wb,wsGX,'GyE');
