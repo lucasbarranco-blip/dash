@@ -291,13 +291,15 @@ var gF = { q:'', desde:'', hasta:'', cat:'', estado:'' };
 var compD = null;
 // Cache para datos de APIs secundarias
 var enviosData = null, marketingData = null, costosData = null, mercadoData = null, facturacionData = null, fullData = null;
+var facturacionPeriodosData = null;
+var provinciaData = null;
 
 var PAGES = {
   resumen:    { title:'Resumen Ejecutivo',       sub:'KPIs · Evolución · Mercado Libre',  tabs:['KPIs','Evolución diaria','Por hora','Por día semana','Visitas por hora'] },
   ventas:     { title:'Evolución de Ventas',     sub:'Facturación y unidades por día',                 tabs:['Gráfico diario','Ranking por variante'] },
   productos:  { title:'Productos & Stock',       sub:'Catálogo completo con variantes',                tabs:['Productos','Por categoría'] },
   alertas:    { title:'Alertas de Stock',        sub:'Productos críticos con reposición urgente',      tabs:['Críticos','Stock bajo','Todo el inventario'] },
-  envios:     { title:'Envíos',                  sub:'Estado de envíos en tiempo real',               tabs:['Estado general','Demorados'] },
+  envios:     { title:'Envíos',                  sub:'Estado de envíos en tiempo real',               tabs:['Estado general','Demorados','Por Provincia'] },
   horario:    { title:'Análisis Horario',        sub:'Patrones de venta por hora, día y semana',      tabs:['Por hora','Por día de semana','Por semana'] },
   comparar:   { title:'Comparar Períodos',       sub:'Análisis comparativo entre dos períodos',       tabs:['Comparación'] },
   prediccion: { title:'IA & Predicciones',       sub:'Análisis inteligente y proyecciones',           tabs:['Insights IA','Proyección de stock'] },
@@ -341,6 +343,7 @@ async function sbOne(path, qs) {
 // CARGA PRINCIPAL — lee todo de Supabase
 async function loadData() {
   setConn('loading','Cargando desde Supabase...');
+  provinciaData = null; // el período cambió, hay que recalcular Ventas por Provincia
   var desde = document.getElementById('f-desde').value;
   var hasta  = document.getElementById('f-hasta').value;
 
@@ -391,6 +394,12 @@ async function loadData() {
     var totalUds  = validas.reduce(function(s,v){ return s+(parseInt(v.cantidad)||0); }, 0);
     var totalOrds = new Set(validas.map(function(v){ return v.id; })).size;
     var totalVis  = visitas.reduce(function(s,v){ return s+(v.visitas_total||0); }, 0);
+    // Costos REALES por orden (ya sincronizados desde ML, sin estimar nada)
+    var comisionReal = validas.reduce(function(s,v){ return s+(parseFloat(v.comision_ml)||0); }, 0);
+    var envioReal     = validas.reduce(function(s,v){ return s+(parseFloat(v.costo_envio)||0); }, 0);
+    // Tasa efectiva real de IIBB Convenio Multilateral (de tu DDJJ Anual 2024, blended nacional).
+    // Se usa solo como respaldo cuando el período elegido no es un mes cerrado con dato real de Facturación.
+    var IIBB_RATE_REAL = 0.047251; // actualizar cuando presentes la DDJJ 2025
 
     // Franja top por hora
     var horaMap = {};
@@ -467,7 +476,10 @@ async function loadData() {
         visitas:        totalVis,
         ticketPromedio: totalOrds > 0 ? totalFac / totalOrds : 0,
         precioPromUnd:  totalUds  > 0 ? totalFac / totalUds  : 0,
-        franjaTop:      franjaTop
+        franjaTop:      franjaTop,
+        comisionReal:   comisionReal,
+        envioReal:      envioReal,
+        iibbReal:       totalFac * IIBB_RATE_REAL
       },
       reputacion: {
         nivel:          rep.nivel || '—',
@@ -562,7 +574,8 @@ async function loadEnvios() {
 async function loadSecondary(nav) {
   var map = {
     marketing:   async () => { var r=await fetch(WORKER+'/marketing'); marketingData=await r.json(); },
-    costos:      async () => { var r=await fetch(WORKER+'/costos');    costosData=await r.json(); },
+    costos:      async () => { var r=await fetch(WORKER+'/costos');    costosData=await r.json();
+      try { facturacionPeriodosData = await sbAll('/facturacion_periodos', 'select=period_key,cargos_total,percepciones_total,total_facturado'); } catch(e) { facturacionPeriodosData = []; } },
     mercado:     async () => { var r=await fetch(WORKER+'/mercado');   mercadoData=await r.json(); },
     facturacion: async () => { var r=await fetch(WORKER+'/facturacion'); facturacionData=await r.json(); },
     full:        async () => { var r=await fetch(WORKER+'/full');      fullData=await r.json(); },
@@ -697,7 +710,7 @@ function renderPage() {
     ventas:[rVentasDia,rVentasVariante],
     productos:[rProductos,rPorCat],
     alertas:[rCriticos,rBajo,rInventario],
-    envios:[rEnvios,rDemorados],
+    envios:[rEnvios,rDemorados,rProvincia],
     horario:[rPorHora,rPorDiaSemana,rPorSemana],
     comparar:[rComparar],
     prediccion:[rPrediccion,rStockPred],
@@ -1050,6 +1063,63 @@ function rDemorados() {
     '<div class="tw"><table class="tbl"><thead><tr><th>#</th><th class="th-l">Envío ID</th><th class="th-l">N° Orden</th><th class="th-l">Producto</th><th class="th-l">Variante</th><th class="th-l">Estado</th><th class="th-l">Destino</th><th class="th-l">Tracking</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
 }
 
+// VENTAS POR PROVINCIA (dato real: join ventas + envios.provincia, sin estimar)
+async function loadProvinciaData() {
+  try {
+    var desde=document.getElementById('f-desde').value, hasta=document.getElementById('f-hasta').value;
+    var vQs='select=id,total,envio_id&estado=neq.cancelled';
+    if(desde) vQs+='&fecha=gte.'+desde;
+    if(hasta) vQs+='&fecha=lte.'+hasta;
+    var ventasRows = await sbAll('/ventas', vQs);
+    var envioIds = Array.from(new Set(ventasRows.map(function(v){return v.envio_id;}).filter(function(x){return x!=null;})));
+    var provByEnvio = {};
+    for(var i=0;i<envioIds.length;i+=200){
+      var batch=envioIds.slice(i,i+200);
+      var rows = await sbAll('/envios','select=id,provincia&id=in.('+batch.join(',')+')');
+      rows.forEach(function(r){ provByEnvio[r.id]=r.provincia; });
+    }
+    var agg={};
+    ventasRows.forEach(function(v){
+      var prov = v.envio_id ? (provByEnvio[v.envio_id]||null) : null;
+      var key = prov || 'Sin provincia';
+      if(!agg[key]) agg[key]={monto:0,ordenes:0};
+      agg[key].monto+=parseFloat(v.total)||0;
+      agg[key].ordenes+=1;
+    });
+    provinciaData = Object.keys(agg).map(function(k){return {provincia:k, monto:agg[k].monto, ordenes:agg[k].ordenes};}).sort(function(a,b){return b.monto-a.monto;});
+  } catch(e) { provinciaData = []; }
+}
+
+function rProvincia() {
+  if(!provinciaData){
+    document.getElementById('page').innerHTML='<div class="loading-page"><div class="spinner"></div></div>';
+    loadProvinciaData().then(function(){ if(curNav==='envios' && curSub===2) renderPage(); });
+    return;
+  }
+  if(!provinciaData.length){document.getElementById('page').innerHTML='<div class="empty">Sin datos de envío para este período</div>';return;}
+
+  var sinProv = provinciaData.find(function(p){return p.provincia==='Sin provincia';});
+  var conProv = provinciaData.filter(function(p){return p.provincia!=='Sin provincia';});
+  var totalConProv = conProv.reduce(function(s,p){return s+p.monto;},0);
+  var ordenesConProv = conProv.reduce(function(s,p){return s+p.ordenes;},0);
+  var max = conProv.length ? conProv[0].monto : 0;
+
+  document.getElementById('page').innerHTML=
+    '<div class="kg">'+
+    kc('Facturación con provincia identificada',fmtM(totalConProv),null,'yt')+
+    kc('Órdenes con provincia',String(ordenesConProv),null,'gt')+
+    (sinProv? kc('Sin provincia (Full/Colecta)',fmtM(sinProv.monto),{t:sinProv.ordenes+' órd. · ML no expone la dirección en estos envíos',c:'ne'},'ot') : '')+
+    '</div>'+
+    '<div class="info-banner">✓ Dato real por envío (destino de cada shipment vía API de ML), sin estimar. "Sin provincia" son mayormente envíos Full/Colecta donde ML no comparte la dirección del comprador con el vendedor.</div>'+
+    panel('Ventas por Provincia','Facturación por destino de envío del período',
+      '<div style="padding:12px 14px">'+
+      conProv.map(function(p){
+        var pct = max>0 ? (p.monto/max*100) : 0;
+        return '<div class="brow"><div class="blbl" style="width:150px">'+p.provincia+'</div><div class="btrk"><div class="bfil" style="width:'+pct.toFixed(0)+'%;background:var(--yd)"></div></div><div class="bval">'+fmtM(p.monto)+'</div><div style="font-size:9.5px;color:var(--txt3);width:70px;text-align:right">'+p.ordenes+' órd.</div></div>';
+      }).join('')+
+      '</div>');
+}
+
 // ANÁLISIS HORARIO (cambio 8: por hora, día semana y semana)
 function rPorHora() {
   var diasData=D.ventasPorDia||{};
@@ -1276,32 +1346,56 @@ function rCompetidores() {
 }
 
 // COSTOS (cambio 10)
+// Si el rango elegido es exactamente un mes calendario completo, devuelve su period_key (YYYY-MM-01)
+function _monthRangeKey(desde, hasta) {
+  if(!desde || !hasta) return null;
+  var d = new Date(desde+'T00:00:00Z'), h = new Date(hasta+'T00:00:00Z');
+  if(isNaN(d)||isNaN(h)) return null;
+  var lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 0)).getUTCDate();
+  var isFullMonth = d.getUTCDate()===1 && h.getUTCDate()===lastDay && h.getUTCMonth()===d.getUTCMonth() && h.getUTCFullYear()===d.getUTCFullYear();
+  if(!isFullMonth) return null;
+  return desde.slice(0,7)+'-01';
+}
+
 function rCostos() {
   if(!costosData){document.getElementById('page').innerHTML='<div class="loading-page"><div class="spinner"></div></div>';return;}
   var m=D.metricas;
-  // Estimación de costos basada en la facturación
   var facturacion=m.facturacion||0;
-  var cargosVenta=Math.round(facturacion*0.178); // ~17.8% comisión ML
-  var costoEnvio=Math.round(facturacion*0.095);  // ~9.5% envíos
-  var publicidad=Math.round(facturacion*0.045);  // ~4.5% ads
-  var retenciones=Math.round(facturacion*0.033); // ~3.3%
-  var percepciones=Math.round(facturacion*0.015);// ~1.5%
-  var totalCostos=cargosVenta+costoEnvio+publicidad+retenciones+percepciones;
+  var cargosVenta=Math.round(m.comisionReal||0);  // real: SUM(comision_ml) de cada orden
+  var costoEnvio=Math.round(m.envioReal||0);       // real: SUM(costo_envio) de cada orden
+
+  // Percepciones: real si el período elegido es un mes cerrado con dato de Facturación ML;
+  // si no, tasa efectiva real de tu DDJJ IIBB (blended nacional) como respaldo.
+  var desde=document.getElementById('f-desde').value, hasta=document.getElementById('f-hasta').value;
+  var periodKey=_monthRangeKey(desde,hasta);
+  var periodoReal=periodKey ? (facturacionPeriodosData||[]).find(function(p){return p.period_key===periodKey;}) : null;
+  var percepciones, percepcionesLabel, esReal;
+  if(periodoReal){
+    percepciones=Math.round(periodoReal.percepciones_total||0);
+    percepcionesLabel='Percepciones reales · Facturación ML '+periodKey.slice(0,7);
+    esReal=true;
+  } else {
+    percepciones=Math.round(m.iibbReal||0);
+    percepcionesLabel='IIBB estimado · tasa real DDJJ 2024 (elegí un mes cerrado completo para el dato 100% real)';
+    esReal=false;
+  }
+
+  var totalCostos=cargosVenta+costoEnvio+percepciones;
   var neto=facturacion-totalCostos;
   var margen=facturacion>0?(neto/facturacion*100):0;
 
   document.getElementById('page').innerHTML=
     '<div class="kg">'+
     kc('Ventas brutas',fmtM(facturacion),null,'yt')+
-    kc('Total costos estimados',fmtM(totalCostos),{t:(totalCostos/facturacion*100).toFixed(1)+'% de las ventas',c:'ne'},'rt')+
-    kc('Neto estimado',fmtM(neto),{t:'después de costos ML',c:neto>0?'up':'dn'},neto>0?'gt':'rt')+
-    kc('Margen estimado',margen.toFixed(1)+'%',{t:'sobre ventas brutas',c:margen>20?'up':margen>10?'ne':'dn'},margen>20?'gt':margen>10?'':'rt')+
+    kc('Total costos reales',fmtM(totalCostos),{t:(facturacion>0?(totalCostos/facturacion*100).toFixed(1):'0')+'% de las ventas',c:'ne'},'rt')+
+    kc('Neto real (parcial)',fmtM(neto),{t:'antes de CMV, gastos fijos y publicidad',c:neto>0?'up':'dn'},neto>0?'gt':'rt')+
+    kc('Margen real (parcial)',margen.toFixed(1)+'%',{t:'sobre ventas brutas',c:margen>20?'up':margen>10?'ne':'dn'},margen>20?'gt':margen>10?'':'rt')+
     '</div>'+
-    '<div class="info-banner">📊 Los costos son <strong>estimaciones basadas en promedios de ML</strong>. Para valores exactos ver la sección de Facturación de ML.</div>'+
-    panel('Distribución de costos','Estimación basada en tu facturación del período',
+    '<div class="info-banner">'+(esReal?'✓ ':'📊 ')+'<strong>Comisión y envío: reales</strong>, sumados orden por orden. <strong>'+percepcionesLabel+'</strong>. No incluye <strong>CMV, gastos fijos ni publicidad</strong> — preferimos no mostrarlos antes que inventarlos.</div>'+
+    panel('Distribución de costos','Datos reales del período',
       '<div class="panel-grid">'+
       '<div style="padding:12px 14px">'+
-      [['Cargos por venta (comisión)',cargosVenta,'r'],['Costos de envío',costoEnvio,'o'],['Inversión en publicidad',publicidad,'p'],['Retenciones',retenciones,'b'],['Percepciones',percepciones,'n']].map(function(c){
+      [['Comisión ML (real)',cargosVenta,'r'],['Costo de envío (real)',costoEnvio,'o'],[esReal?'Percepciones (real)':'IIBB (estimado)',percepciones,'b']].map(function(c){
         var pct=facturacion>0?(c[1]/facturacion*100):0;
         return '<div class="brow"><div class="blbl" style="width:180px">'+c[0]+'</div><div class="btrk"><div class="bfil" style="width:'+pct.toFixed(0)+'%;background:var(--yd)"></div></div><div class="bval">'+fmtM(c[1])+'</div><div style="font-size:9.5px;color:var(--txt3);width:32px;text-align:right">'+pct.toFixed(1)+'%</div></div>';
       }).join('')+
@@ -1309,8 +1403,8 @@ function rCostos() {
       '<div class="chart-wrap h200"><canvas id="ch-costos"></canvas></div>'+
       '</div>');
   mkChart('ch-costos','doughnut',
-    ['Cargos venta','Envío','Publicidad','Retenciones','Percepciones','Neto'],
-    [{data:[cargosVenta,costoEnvio,publicidad,retenciones,percepciones,neto],backgroundColor:['#ef4444','#f97316','#7c3aed','#2563eb','#9ca3af','#16a34a'],borderWidth:2,borderColor:'var(--bg)'}],
+    ['Comisión','Envío',esReal?'Percepciones':'IIBB','Neto parcial'],
+    [{data:[cargosVenta,costoEnvio,percepciones,neto],backgroundColor:['#ef4444','#f97316','#2563eb','#16a34a'],borderWidth:2,borderColor:'var(--bg)'}],
     {plugins:{legend:{display:true,position:'right',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}},scales:{x:{display:false},y:{display:false}}});
 }
 
