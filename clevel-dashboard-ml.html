@@ -1067,20 +1067,13 @@ function rDemorados() {
 async function loadProvinciaData() {
   try {
     var desde=document.getElementById('f-desde').value, hasta=document.getElementById('f-hasta').value;
-    var vQs='select=id,total,envio_id&estado=neq.cancelled';
+    var vQs='select=id,total,provincia&estado=neq.cancelled';
     if(desde) vQs+='&fecha=gte.'+desde;
     if(hasta) vQs+='&fecha=lte.'+hasta;
     var ventasRows = await sbAll('/ventas', vQs);
-    var envioIds = Array.from(new Set(ventasRows.map(function(v){return v.envio_id;}).filter(function(x){return x!=null;})));
-    var provByEnvio = {};
-    for(var i=0;i<envioIds.length;i+=200){
-      var batch=envioIds.slice(i,i+200);
-      var rows = await sbAll('/envios','select=id,provincia&id=in.('+batch.join(',')+')');
-      rows.forEach(function(r){ provByEnvio[r.id]=r.provincia; });
-    }
     var agg={};
     ventasRows.forEach(function(v){
-      var prov = v.envio_id ? (provByEnvio[v.envio_id]||null) : null;
+      var prov = v.provincia || null;
       var key = prov || 'Sin provincia';
       if(!agg[key]) agg[key]={monto:0,ordenes:0};
       agg[key].monto+=parseFloat(v.total)||0;
@@ -1108,9 +1101,9 @@ function rProvincia() {
     '<div class="kg">'+
     kc('Facturación con provincia identificada',fmtM(totalConProv),null,'yt')+
     kc('Órdenes con provincia',String(ordenesConProv),null,'gt')+
-    (sinProv? kc('Sin provincia (Full/Colecta)',fmtM(sinProv.monto),{t:sinProv.ordenes+' órd. · ML no expone la dirección en estos envíos',c:'ne'},'ot') : '')+
+    (sinProv? kc('Sin provincia',fmtM(sinProv.monto),{t:sinProv.ordenes+' órd. · sin dato de destino en el reporte',c:'ne'},'ot') : '')+
     '</div>'+
-    '<div class="info-banner">✓ Dato real por envío (destino de cada shipment vía API de ML), sin estimar. "Sin provincia" son mayormente envíos Full/Colecta donde ML no comparte la dirección del comprador con el vendedor.</div>'+
+    '<div class="info-banner">✓ Dato 100% real del reporte de Ventas de ML (provincia de destino de cada venta), sin estimar. "Sin provincia" son ventas sin datos de destino (canceladas viejas o aún sin backfill).</div>'+
     panel('Ventas por Provincia','Facturación por destino de envío del período',
       '<div style="padding:12px 14px">'+
       conProv.map(function(p){
