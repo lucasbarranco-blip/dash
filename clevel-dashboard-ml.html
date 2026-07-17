@@ -219,6 +219,7 @@ select option{background:var(--bg);color:var(--txt)}
     <button class="ni" onclick="go('horario',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Análisis Horario</button>
     <button class="ni" onclick="go('comparar',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Comparar Períodos</button>
     <button class="ni" onclick="go('prediccion',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>IA & Predicciones</button>
+    <button class="ni" onclick="go('ejecutivo',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4L12 17l-6.3 4.4L8 14 2 9.4h7.6z"/></svg>Resumen Ejecutivo IA</button>
     <div class="nsec">Cuenta</div>
     <button class="ni" onclick="go('marketing',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/><circle cx="12" cy="12" r="3"/></svg>Marketing</button>
     <button class="ni" onclick="go('mercado',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>Análisis de Mercado</button>
@@ -303,6 +304,7 @@ var PAGES = {
   horario:    { title:'Análisis Horario',        sub:'Patrones de venta por hora, día y semana',      tabs:['Por hora','Por día de semana','Por semana'] },
   comparar:   { title:'Comparar Períodos',       sub:'Análisis comparativo entre dos períodos',       tabs:['Comparación'] },
   prediccion: { title:'IA & Predicciones',       sub:'Análisis inteligente y proyecciones',           tabs:['Insights IA','Proyección de stock'] },
+  ejecutivo:  { title:'Resumen Ejecutivo IA',     sub:'Análisis del período redactado por IA',         tabs:['Resumen del período'] },
   marketing:  { title:'Marketing',               sub:'Campañas activas, seguidores y publicidad',     tabs:['Resumen','Campañas'] },
   mercado:    { title:'Análisis de Mercado',     sub:'Competidores y posición en ML',                 tabs:['Tu posición','Competidores'] },
   costos:     { title:'Costos & Rentabilidad',   sub:'Distribución de costos y margen estimado',      tabs:['Resumen de costos'] },
@@ -337,6 +339,17 @@ async function sbAll(path, qs) {
 async function sbOne(path, qs) {
   var r = await fetch(SB_URL + path + '?' + (qs||''), { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } });
   if (!r.ok) throw new Error('Supabase ' + path + ' → ' + r.status);
+  return r.json();
+}
+
+// Llama una función RPC de Postgres (ej: cmv_periodo)
+async function sbRPC(fn, body) {
+  var r = await fetch(SB_URL + '/rpc/' + fn, {
+    method: 'POST',
+    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  });
+  if (!r.ok) throw new Error('Supabase RPC ' + fn + ' → ' + r.status);
   return r.json();
 }
 
@@ -466,6 +479,18 @@ async function loadData() {
     var ventasPorSemana={0:0,1:0,2:0,3:0,4:0,5:0,6:0},facturacionPorSemana={0:0,1:0,2:0,3:0,4:0,5:0,6:0},unidadesPorSemana={0:0,1:0,2:0,3:0,4:0,5:0,6:0};
     validas.forEach(function(v){if(v.fecha){var dow=new Date(v.fecha+'T12:00:00').getDay();ventasPorSemana[dow]++;facturacionPorSemana[dow]+=parseFloat(v.total)||0;unidadesPorSemana[dow]+=parseInt(v.cantidad)||0;}});
     var canceladasDetalle=canceladas.map(function(v){return{id:v.id,fecha:v.fecha,producto:v.producto_titulo||'—',motivo:v.motivo_cancelacion||v.tipo_cancelacion||'—',total:parseFloat(v.total)||0};});
+
+    // ── CMV real del período (costo por SKU del Pricing, sin IVA) ──
+    var cmvReal=0, cmvUdsConCosto=0, cmvUdsTotal=0;
+    try {
+      var cmvRows = await sbRPC('cmv_periodo', { desde: desde, hasta: hasta });
+      if (cmvRows && cmvRows[0]) {
+        cmvReal        = parseFloat(cmvRows[0].cmv)||0;
+        cmvUdsConCosto = parseInt(cmvRows[0].unidades_con_costo)||0;
+        cmvUdsTotal    = parseInt(cmvRows[0].unidades_total)||0;
+      }
+    } catch(e) {}
+
         // ── BUILD D ────────────────────────────────────────────
     D = {
       metricas: {
@@ -479,7 +504,10 @@ async function loadData() {
         franjaTop:      franjaTop,
         comisionReal:   comisionReal,
         envioReal:      envioReal,
-        iibbReal:       totalFac * IIBB_RATE_REAL
+        iibbReal:       totalFac * IIBB_RATE_REAL,
+        cmvReal:        cmvReal,
+        cmvUdsConCosto: cmvUdsConCosto,
+        cmvUdsTotal:    cmvUdsTotal
       },
       reputacion: {
         nivel:          rep.nivel || '—',
@@ -714,6 +742,7 @@ function renderPage() {
     horario:[rPorHora,rPorDiaSemana,rPorSemana],
     comparar:[rComparar],
     prediccion:[rPrediccion,rStockPred],
+    ejecutivo:[rEjecutivo],
     marketing:[rMarketing,rCampanas],
     mercado:[rMercado,rCompetidores],
     costos:[rCostos],
@@ -1271,6 +1300,160 @@ function rStockPred() {
       '<div class="tw"><table class="tbl"><thead><tr><th>#</th><th class="th-l">Producto</th><th>Stock actual</th><th>Ritmo</th><th>Días restantes</th><th>Reponer para 60d</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="tfoot"><span>'+data.length+' productos</span></div>');
 }
 
+// ── RESUMEN EJECUTIVO CON IA ────────────────────────────────
+// Junta los datos 100% reales del período (y del período anterior de igual
+// longitud para comparar), se los manda al Worker /ia que llama a Claude,
+// y muestra la prosa + gráficos. La clave de API vive en el Worker.
+var ejecutivoData = null; // cachea el último resumen generado
+
+// Trae los datos reales del período elegido (desde/hasta) directo de Supabase.
+async function _ejecutivoPeriodo(desde, hasta) {
+  var ventas = await sbAll('/ventas', 'select=id,producto_id,producto_titulo,cantidad,total,estado,provincia,comision_ml,costo_envio&fecha=gte.'+desde+'&fecha=lte.'+hasta);
+  var validas = ventas.filter(function(v){ return !['cancelled','cancelada','canceled'].includes(v.estado); });
+  var fac = validas.reduce(function(s,v){return s+(parseFloat(v.total)||0);},0);
+  var uds = validas.reduce(function(s,v){return s+(parseInt(v.cantidad)||0);},0);
+  var ords = new Set(validas.map(function(v){return v.id;})).size;
+  var comision = validas.reduce(function(s,v){return s+(parseFloat(v.comision_ml)||0);},0);
+  var envio = validas.reduce(function(s,v){return s+(parseFloat(v.costo_envio)||0);},0);
+  // top productos
+  var byProd={}; validas.forEach(function(v){var k=v.producto_titulo||('#'+v.producto_id); if(!byProd[k])byProd[k]={uds:0,fac:0}; byProd[k].uds+=parseInt(v.cantidad)||0; byProd[k].fac+=parseFloat(v.total)||0;});
+  var topProd=Object.keys(byProd).map(function(k){return {titulo:cleanT(k).slice(0,45),uds:byProd[k].uds,fac:Math.round(byProd[k].fac)};}).sort(function(a,b){return b.fac-a.fac;}).slice(0,8);
+  // top provincias
+  var byProv={}; validas.forEach(function(v){var p=v.provincia||'(sin dato)'; if(!byProv[p])byProv[p]={uds:0,fac:0}; byProv[p].uds+=parseInt(v.cantidad)||0; byProv[p].fac+=parseFloat(v.total)||0;});
+  var topProv=Object.keys(byProv).map(function(k){return {provincia:k,uds:byProv[k].uds,fac:Math.round(byProv[k].fac)};}).sort(function(a,b){return b.fac-a.fac;}).slice(0,8);
+  // CMV + IIBB reales del período
+  var cmv=0, cmvCob=0;
+  try { var c=await sbRPC('cmv_periodo',{desde:desde,hasta:hasta}); if(c&&c[0]){cmv=Math.round(parseFloat(c[0].cmv)||0); cmvCob=(c[0].unidades_total>0)?Math.round(c[0].unidades_con_costo/c[0].unidades_total*100):0;} } catch(e){}
+  // percepciones reales si el mes está cerrado, sino IIBB por tasa DDJJ
+  var pk=_monthRangeKey(desde,hasta);
+  var pr=pk?(facturacionPeriodosData||[]).find(function(p){return p.period_key===pk;}):null;
+  var iibb = pr ? Math.round(pr.percepciones_total||0) : Math.round(fac*0.047251);
+  var iibbEsReal = !!pr;
+  var neto = fac - comision - envio - iibb - cmv;
+  return { desde:desde, hasta:hasta, facturacion:Math.round(fac), unidades:uds, ordenes:ords,
+    comision:Math.round(comision), envio:Math.round(envio), iibb:iibb, iibbEsReal:iibbEsReal,
+    cmv:cmv, cmvCobertura:cmvCob, neto:Math.round(neto),
+    margenPct: fac>0?+(neto/fac*100).toFixed(1):0, ticket: ords>0?Math.round(fac/ords):0,
+    topProductos:topProd, topProvincias:topProv };
+}
+
+function _prevPeriodo(desde, hasta) {
+  var d1=new Date(desde+'T12:00:00'), d2=new Date(hasta+'T12:00:00');
+  var dias=Math.round((d2-d1)/864e5)+1;
+  var pHasta=new Date(d1); pHasta.setDate(pHasta.getDate()-1);
+  var pDesde=new Date(pHasta); pDesde.setDate(pDesde.getDate()-(dias-1));
+  var f=function(x){return x.toISOString().slice(0,10);};
+  return { desde:f(pDesde), hasta:f(pHasta) };
+}
+
+async function generarEjecutivo() {
+  var btn=document.getElementById('btn-gen-ej'); if(btn){btn.disabled=true; btn.textContent='Generando…';}
+  var cont=document.getElementById('ej-out');
+  cont.innerHTML='<div class="loading-page"><div class="spinner"></div><p style="color:var(--txt3);font-size:12px;margin-top:12px">Analizando el período con IA…</p></div>';
+  try {
+    var desde=document.getElementById('f-desde').value, hasta=document.getElementById('f-hasta').value;
+    if(!(facturacionPeriodosData)) { try { facturacionPeriodosData = await sbAll('/facturacion_periodos','select=period_key,cargos_total,percepciones_total,total_facturado'); } catch(e){ facturacionPeriodosData=[]; } }
+    var actual = await _ejecutivoPeriodo(desde, hasta);
+    var pp = _prevPeriodo(desde, hasta);
+    var previo=null; try { previo = await _ejecutivoPeriodo(pp.desde, pp.hasta); } catch(e){}
+    var payload = { actual: actual, previo: previo };
+    var r = await fetch(WORKER + '/ia', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if(!r.ok){
+      var t=await r.text();
+      cont.innerHTML='<div class="empty">No se pudo generar el resumen (Worker /ia → '+r.status+'). '+
+        (r.status===404?'El endpoint <strong>/ia</strong> todavía no está configurado en el Worker.':'')+
+        '<div style="font-size:11px;color:var(--txt3);margin-top:8px">'+(t||'').slice(0,200)+'</div></div>';
+      if(btn){btn.disabled=false; btn.textContent='Generar resumen';}
+      return;
+    }
+    var data = await r.json();
+    var texto = data.texto || data.analisis || data.text || '';
+    ejecutivoData = { actual: actual, previo: previo, texto: texto };
+    _pintarEjecutivo();
+  } catch(e) {
+    cont.innerHTML='<div class="empty">Error generando el resumen: '+e.message+'</div>';
+  }
+  if(btn){btn.disabled=false; btn.textContent='Regenerar';}
+}
+
+function _pintarEjecutivo() {
+  if(!ejecutivoData){return;}
+  var a=ejecutivoData.actual, p=ejecutivoData.previo, texto=ejecutivoData.texto;
+  var cont=document.getElementById('ej-out');
+  var dpct=function(cur,prev){ if(!prev||prev===0)return null; return (cur-prev)/prev*100; };
+  var chip=function(cur,prev){ var d=dpct(cur,prev); if(d===null)return ''; var up=d>=0; return '<span class="ks '+(up?'up':'dn')+'" style="margin-left:6px">'+(up?'▲ +':'▼ ')+d.toFixed(1)+'%</span>'; };
+  // texto de IA a HTML (párrafos)
+  var textoHtml = (texto||'').split(/\n{2,}/).map(function(par){
+    par=par.trim(); if(!par)return '';
+    par=par.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    if(/^[-•]\s/.test(par)){ var items=par.split(/\n/).map(function(l){return l.replace(/^[-•]\s*/,'');}); return '<ul style="margin:6px 0 6px 18px">'+items.map(function(i){return '<li style="margin:2px 0">'+i+'</li>';}).join('')+'</ul>'; }
+    return '<p style="margin:8px 0;line-height:1.55">'+par+'</p>';
+  }).join('');
+
+  cont.innerHTML=
+    '<div class="kg">'+
+    kc('Facturación bruta',fmtM(a.facturacion),p?{t:'vs período anterior'+chip(a.facturacion,p.facturacion),c:'ne'}:null,'yt')+
+    kc('Neto real (parcial)',fmtM(a.neto),{t:'margen '+a.margenPct+'%'+(p?chip(a.neto,p.neto):''),c:a.neto>0?'up':'dn'},a.neto>0?'gt':'rt')+
+    kc('Unidades',fmt(a.unidades),p?{t:'órdenes: '+fmt(a.ordenes)+chip(a.unidades,p.unidades),c:'ne'}:null,'bt')+
+    kc('Ticket promedio',fmtM(a.ticket),p?{t:'vs anterior'+chip(a.ticket,p.ticket),c:'ne'}:null,'')+
+    '</div>'+
+    '<div class="ai-card"><div class="ai-title">✦ Análisis del período · redactado por IA</div>'+
+      '<div style="font-size:12.5px;color:var(--txt)">'+ (textoHtml||'<span style="color:var(--txt3)">Sin texto.</span>') +'</div>'+
+      '<div style="font-size:10px;color:var(--txt3);margin-top:10px">Período '+a.desde+' → '+a.hasta+(p?' · comparado con '+p.desde+' → '+p.hasta:'')+'</div>'+
+    '</div>'+
+    '<div class="panel-grid">'+
+    panel('Rentabilidad del período','Comisión · Envío · '+(a.iibbEsReal?'Percepciones':'IIBB')+' · CMV ('+a.cmvCobertura+'% cob.)',
+      '<div class="chart-wrap h220"><canvas id="ch-ej-rent"></canvas></div>')+
+    panel('Facturación: actual vs anterior','Bruta, neto y unidades',
+      '<div class="chart-wrap h220"><canvas id="ch-ej-comp"></canvas></div>')+
+    '</div>'+
+    '<div class="panel-grid">'+
+    panel('Top productos','Por facturación',
+      '<div style="padding:8px 12px">'+a.topProductos.map(function(it,i){
+        var max=a.topProductos[0].fac||1;
+        return '<div class="brow"><div class="blbl" style="width:190px">'+(i+1)+'. '+it.titulo+'</div><div class="btrk"><div class="bfil" style="width:'+(it.fac/max*100).toFixed(0)+'%;background:var(--yd)"></div></div><div class="bval">'+fmtM(it.fac)+'</div><div style="font-size:9.5px;color:var(--txt3);width:38px;text-align:right">'+fmt(it.uds)+'u</div></div>';
+      }).join('')+'</div>')+
+    panel('Top provincias','Por facturación',
+      '<div style="padding:8px 12px">'+a.topProvincias.map(function(it,i){
+        var max=a.topProvincias[0].fac||1;
+        return '<div class="brow"><div class="blbl" style="width:150px">'+(i+1)+'. '+it.provincia+'</div><div class="btrk"><div class="bfil" style="width:'+(it.fac/max*100).toFixed(0)+'%;background:#2563eb"></div></div><div class="bval">'+fmtM(it.fac)+'</div><div style="font-size:9.5px;color:var(--txt3);width:38px;text-align:right">'+fmt(it.uds)+'u</div></div>';
+      }).join('')+'</div>')+
+    '</div>';
+
+  mkChart('ch-ej-rent','doughnut',
+    ['Comisión','Envío',a.iibbEsReal?'Percepciones':'IIBB','CMV','Neto'],
+    [{data:[a.comision,a.envio,a.iibb,a.cmv,Math.max(0,a.neto)],backgroundColor:['#ef4444','#f97316','#2563eb','#9333ea','#16a34a'],borderWidth:2,borderColor:'var(--bg)'}],
+    {plugins:{legend:{display:true,position:'right',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}},scales:{x:{display:false},y:{display:false}}});
+  if(p){
+    mkChart('ch-ej-comp','bar',['Facturación','Neto','Unidades'],
+      [{label:'Anterior',data:[p.facturacion,p.neto,p.unidades],backgroundColor:'rgba(156,163,175,.5)'},
+       {label:'Actual',data:[a.facturacion,a.neto,a.unidades],backgroundColor:'#c8b400'}],
+      {plugins:{legend:{display:true,position:'top',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}}});
+  } else {
+    var el=document.getElementById('ch-ej-comp'); if(el){el.parentNode.innerHTML='<div class="empty">Sin período anterior comparable.</div>';}
+  }
+}
+
+function rEjecutivo() {
+  var desde=document.getElementById('f-desde').value, hasta=document.getElementById('f-hasta').value;
+  document.getElementById('page').innerHTML=
+    '<div class="ai-card"><div class="ai-title">✦ Resumen Ejecutivo con IA</div>'+
+      '<div class="ai-insight">Genera un análisis en prosa del período <strong>'+(desde||'—')+' → '+(hasta||'—')+'</strong>, comparándolo con el período anterior de igual duración. Cubre ventas y facturación neta, rentabilidad (comisiones, envío, IIBB, CMV) y los top productos y provincias — todo con datos 100% reales de tu cuenta.</div>'+
+      '<div style="margin-top:10px"><button id="btn-gen-ej" onclick="generarEjecutivo()" class="btn-primary" style="background:#111;color:#ffe600;border:none;padding:9px 18px;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer">Generar resumen</button></div>'+
+    '</div>'+
+    '<div id="ej-out"><div class="empty">Elegí el período arriba y tocá <strong>Generar resumen</strong>.</div></div>';
+  // si ya se generó para este período, re-pintar
+  if(ejecutivoData && ejecutivoData.actual && ejecutivoData.actual.desde===desde && ejecutivoData.actual.hasta===hasta){
+    _pintarEjecutivo();
+    var b=document.getElementById('btn-gen-ej'); if(b)b.textContent='Regenerar';
+  }
+}
+
+
+
 // MARKETING (cambio 6 y 7)
 function rMarketing() {
   if(!marketingData){document.getElementById('page').innerHTML='<div class="loading-page"><div class="spinner"></div></div>';return;}
@@ -1373,7 +1556,12 @@ function rCostos() {
     esReal=false;
   }
 
-  var totalCostos=cargosVenta+costoEnvio+percepciones;
+  // CMV real del período (costo mercadería vendida, sin IVA) — real donde hay costo por SKU.
+  var cmv=Math.round(m.cmvReal||0);
+  var cmvCob=(m.cmvUdsTotal>0)?(m.cmvUdsConCosto/m.cmvUdsTotal*100):0;
+  var cmvTieneDato=cmv>0;
+
+  var totalCostos=cargosVenta+costoEnvio+percepciones+cmv;
   var neto=facturacion-totalCostos;
   var margen=facturacion>0?(neto/facturacion*100):0;
 
@@ -1381,14 +1569,16 @@ function rCostos() {
     '<div class="kg">'+
     kc('Ventas brutas',fmtM(facturacion),null,'yt')+
     kc('Total costos reales',fmtM(totalCostos),{t:(facturacion>0?(totalCostos/facturacion*100).toFixed(1):'0')+'% de las ventas',c:'ne'},'rt')+
-    kc('Neto real (parcial)',fmtM(neto),{t:'antes de CMV, gastos fijos y publicidad',c:neto>0?'up':'dn'},neto>0?'gt':'rt')+
+    kc('Neto real (parcial)',fmtM(neto),{t:'antes de gastos fijos y publicidad',c:neto>0?'up':'dn'},neto>0?'gt':'rt')+
     kc('Margen real (parcial)',margen.toFixed(1)+'%',{t:'sobre ventas brutas',c:margen>20?'up':margen>10?'ne':'dn'},margen>20?'gt':margen>10?'':'rt')+
     '</div>'+
-    '<div class="info-banner">'+(esReal?'✓ ':'📊 ')+'<strong>Comisión y envío: reales</strong>, sumados orden por orden. <strong>'+percepcionesLabel+'</strong>. No incluye <strong>CMV, gastos fijos ni publicidad</strong> — preferimos no mostrarlos antes que inventarlos.</div>'+
+    '<div class="info-banner">'+(esReal?'✓ ':'📊 ')+'<strong>Comisión, envío y CMV: reales</strong>, sumados orden por orden. <strong>'+percepcionesLabel+'</strong>. '+
+      (cmvTieneDato?'El <strong>CMV cubre el '+cmvCob.toFixed(0)+'% de las unidades</strong> (las que tienen costo cargado por SKU); el resto todavía no.':'Sin CMV: falta cargar el SKU de estos productos.')+
+      ' No incluye <strong>gastos fijos ni publicidad</strong> — preferimos no mostrarlos antes que inventarlos.</div>'+
     panel('Distribución de costos','Datos reales del período',
       '<div class="panel-grid">'+
       '<div style="padding:12px 14px">'+
-      [['Comisión ML (real)',cargosVenta,'r'],['Costo de envío (real)',costoEnvio,'o'],[esReal?'Percepciones (real)':'IIBB (estimado)',percepciones,'b']].map(function(c){
+      [['Comisión ML (real)',cargosVenta,'r'],['Costo de envío (real)',costoEnvio,'o'],[esReal?'Percepciones (real)':'IIBB (estimado)',percepciones,'b'],['CMV mercadería (real · '+cmvCob.toFixed(0)+'% cob.)',cmv,'p']].map(function(c){
         var pct=facturacion>0?(c[1]/facturacion*100):0;
         return '<div class="brow"><div class="blbl" style="width:180px">'+c[0]+'</div><div class="btrk"><div class="bfil" style="width:'+pct.toFixed(0)+'%;background:var(--yd)"></div></div><div class="bval">'+fmtM(c[1])+'</div><div style="font-size:9.5px;color:var(--txt3);width:32px;text-align:right">'+pct.toFixed(1)+'%</div></div>';
       }).join('')+
@@ -1396,8 +1586,8 @@ function rCostos() {
       '<div class="chart-wrap h200"><canvas id="ch-costos"></canvas></div>'+
       '</div>');
   mkChart('ch-costos','doughnut',
-    ['Comisión','Envío',esReal?'Percepciones':'IIBB','Neto parcial'],
-    [{data:[cargosVenta,costoEnvio,percepciones,neto],backgroundColor:['#ef4444','#f97316','#2563eb','#16a34a'],borderWidth:2,borderColor:'var(--bg)'}],
+    ['Comisión','Envío',esReal?'Percepciones':'IIBB','CMV','Neto parcial'],
+    [{data:[cargosVenta,costoEnvio,percepciones,cmv,neto],backgroundColor:['#ef4444','#f97316','#2563eb','#9333ea','#16a34a'],borderWidth:2,borderColor:'var(--bg)'}],
     {plugins:{legend:{display:true,position:'right',labels:{color:'#4b5563',font:{size:9},boxWidth:10}}},scales:{x:{display:false},y:{display:false}}});
 }
 
