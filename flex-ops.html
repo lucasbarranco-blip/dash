@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flex Ops · Ganga Home</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --navy:#141c2e; --navy2:#1e2942; --yellow:#ffd400; --yellow2:#ffe14d;
+    --bg:#f4f6fb; --card:#ffffff; --line:#e5e9f2; --ink:#141c2e; --mut:#6b7690;
+    --ok:#16a34a; --okbg:#dcfce7; --warn:#d97706; --warnbg:#fef3c7;
+    --risk:#dc2626; --riskbg:#fee2e2; --info:#2563eb; --infobg:#dbeafe;
+    --wait:#7c3aed; --waitbg:#ede9fe; --grey:#64748b; --greybg:#eef1f6;
+    --shadow:0 1px 3px rgba(20,28,46,.08),0 8px 24px rgba(20,28,46,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+  button{font-family:inherit;cursor:pointer}
+  a{color:var(--info)}
+  .hidden{display:none!important}
+
+  /* Layout */
+  header{background:var(--navy);color:#fff;padding:10px 18px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:30}
+  header .logo{font-weight:800;font-size:17px;letter-spacing:.3px}
+  header .logo b{color:var(--yellow)}
+  header .flex-badge{background:var(--yellow);color:var(--navy);font-weight:800;font-size:11px;padding:3px 9px;border-radius:20px}
+  header .spacer{flex:1}
+  header .env{font-size:12px;color:#aeb8d0;display:flex;align-items:center;gap:6px}
+  header .dot{width:8px;height:8px;border-radius:50%;background:#64748b}
+  header .dot.on{background:#22c55e} header .dot.local{background:var(--yellow)}
+  header .hbtn{background:#2a3550;color:#fff;border:none;padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600}
+  header .hbtn:hover{background:#37456a}
+
+  nav.tabs{background:var(--navy2);display:flex;gap:2px;padding:0 12px;overflow-x:auto;position:sticky;top:44px;z-index:29}
+  nav.tabs button{background:transparent;color:#c3cbe0;border:none;padding:12px 16px;font-size:13px;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
+  nav.tabs button .n{background:#38456a;color:#fff;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:6px}
+  nav.tabs button.active{color:#fff;border-bottom-color:var(--yellow)}
+  nav.tabs button.active .n{background:var(--yellow);color:var(--navy)}
+  nav.tabs button:hover{color:#fff}
+
+  main{max-width:1240px;margin:0 auto;padding:18px}
+  .view{display:none} .view.active{display:block}
+
+  /* Cards / KPIs */
+  .grid{display:grid;gap:14px}
+  .kpis{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow)}
+  .kpi .lbl{font-size:12px;color:var(--mut);font-weight:600;display:flex;align-items:center;gap:6px}
+  .kpi .val{font-size:30px;font-weight:800;margin-top:6px;line-height:1}
+  .kpi .sub{font-size:12px;color:var(--mut);margin-top:4px}
+  .kpi.risk .val{color:var(--risk)} .kpi.warn .val{color:var(--warn)} .kpi.ok .val{color:var(--ok)}
+  .kpi.click{cursor:pointer;transition:transform .08s} .kpi.click:hover{transform:translateY(-2px)}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);margin-top:16px;overflow:hidden}
+  .panel .ph{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .panel .ph h3{margin:0;font-size:15px} .panel .ph .hint{font-size:12px;color:var(--mut)}
+  .panel .pb{padding:16px}
+
+  /* "Qué hacer ahora" */
+  .now{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;border-radius:16px;padding:18px 20px;box-shadow:var(--shadow)}
+  .now .tag{display:inline-block;background:var(--yellow);color:var(--navy);font-weight:800;font-size:12px;padding:4px 10px;border-radius:20px}
+  .now h2{margin:10px 0 4px;font-size:20px}
+  .now p{margin:0;color:#c3cbe0;font-size:13px}
+  .now ul{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:8px}
+  .now li{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 12px;font-size:13px;display:flex;gap:10px;align-items:flex-start}
+  .now li .k{color:var(--yellow);font-weight:800}
+
+  /* Buttons */
+  .btn{background:var(--navy);color:#fff;border:none;padding:9px 14px;border-radius:9px;font-size:13px;font-weight:600}
+  .btn:hover{background:var(--navy2)}
+  .btn.y{background:var(--yellow);color:var(--navy)} .btn.y:hover{background:var(--yellow2)}
+  .btn.gh{background:#fff;color:var(--navy);border:1px solid var(--line)} .btn.gh:hover{background:#f8fafc}
+  .btn.sm{padding:6px 10px;font-size:12px} .btn.danger{background:#fff;color:var(--risk);border:1px solid #f3c0c0}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  /* Toolbar */
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+  .toolbar input[type=text],.toolbar select{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff}
+  .toolbar input[type=text]{min-width:220px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--mut)}
+  .chip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .spacer{flex:1}
+
+  /* Table */
+  .tablewrap{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+  th{text-align:left;background:#f8fafc;color:var(--mut);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0}
+  td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:hover td{background:#fbfcfe}
+  .empty{text-align:center;color:var(--mut);padding:40px 20px}
+  .empty .big{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:6px}
+
+  /* Badges */
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+  .b-ok{background:var(--okbg);color:var(--ok)} .b-warn{background:var(--warnbg);color:var(--warn)}
+  .b-risk{background:var(--riskbg);color:var(--risk)} .b-info{background:var(--infobg);color:var(--info)}
+  .b-wait{background:var(--waitbg);color:var(--wait)} .b-grey{background:var(--greybg);color:var(--grey)}
+  .rep-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .flag{color:var(--risk);font-weight:800;font-size:11px}
+
+  select.mini{padding:5px 6px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff;max-width:170px}
+  .link{background:none;border:none;color:var(--info);font-weight:600;font-size:12px;padding:2px 4px}
+  .link:hover{text-decoration:underline}
+  .muted{color:var(--mut)} .small{font-size:12px} .b{font-weight:700}
+  .late{color:var(--risk);font-weight:700}
+
+  /* Modal */
+  .overlay{position:fixed;inset:0;background:rgba(20,28,46,.5);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:50;overflow:auto}
+  .modal{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:100%;max-width:560px}
+  .modal.wide{max-width:820px}
+  .modal .mh{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .modal .mh h3{margin:0;font-size:16px;flex:1}
+  .modal .mb{padding:20px;max-height:70vh;overflow:auto}
+  .modal .mf{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+  .close{background:none;border:none;font-size:22px;color:var(--mut);line-height:1}
+  .field{margin-bottom:14px} .field label{display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:5px}
+  .field input,.field select,.field textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff}
+  .field textarea{min-height:64px;resize:vertical}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  code,pre{font-family:'Consolas',monospace}
+  pre{background:var(--navy);color:#e6ebf5;padding:14px;border-radius:10px;overflow:auto;font-size:12px;line-height:1.5}
+
+  /* Message cards */
+  .msgcard{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fbfcfe}
+  .msgcard h4{margin:0 0 6px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .msgcard p{margin:0 0 10px;font-size:13px;color:#334155;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px}
+
+  /* Guide */
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .stepc{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+  .stepc .sh{background:var(--navy);color:#fff;padding:10px 12px;font-weight:700;font-size:13px;display:flex;gap:8px;align-items:center}
+  .stepc .sh .num{background:var(--yellow);color:var(--navy);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+  .stepc .sb{padding:12px} .stepc .sb .t{font-weight:700;margin-bottom:4px}
+  .stepc .sb .d{font-size:12px;color:var(--mut)}
+  .checklist{display:grid;gap:8px} .checklist label{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;cursor:pointer}
+  .checklist input{margin-top:2px;width:17px;height:17px;flex-shrink:0}
+  .checklist label.done{background:#f0fdf4;border-color:#bbf7d0;color:var(--mut);text-decoration:line-through}
+  .repcols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .repcard{border-radius:12px;padding:14px;border:1px solid var(--line)}
+  .repcard.good{background:#f0fdf4;border-color:#bbf7d0} .repcard.bad{background:#fef2f2;border-color:#fecaca}
+  .repcard h4{margin:0 0 8px;font-size:14px} .repcard ul{margin:0;padding-left:18px;font-size:12.5px;color:#334155;line-height:1.6}
+
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:80;opacity:0;transition:opacity .2s,transform .2s}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+  .banner{background:var(--warnbg);color:#92610a;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px;display:flex;gap:10px;align-items:center}
+  .banner b{color:#78350f}
+  @media(max-width:640px){.repcols,.row2{grid-template-columns:1fr}.now h2{font-size:18px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Flex<b>Ops</b></div>
+  <span class="flex-badge">⚡ MERCADO LIBRE FLEX</span>
+  <div class="spacer"></div>
+  <div class="env"><span class="dot local" id="connDot"></span><span id="connLabel">Modo local</span></div>
+  <button class="hbtn" onclick="openImport()">⬆ Importar ventas</button>
+  <button class="hbtn" onclick="openConfig()">⚙ Config</button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-v="panel" class="active">📊 Panel</button>
+  <button data-v="ventas">📦 Ventas <span class="n" id="nVentas">0</span></button>
+  <button data-v="colecta">🚚 Colecta <span class="n" id="nColecta">0</span></button>
+  <button data-v="reputacion">⭐ Reputación <span class="n" id="nRep">0</span></button>
+  <button data-v="stock">🏷️ Stock <span class="n" id="nStock">0</span></button>
+  <button data-v="guia">📖 Guía del equipo</button>
+</nav>
+
+<main>
+  <!-- PANEL -->
+  <section class="view active" id="v-panel">
+    <div id="nowBox"></div>
+    <div class="grid kpis" id="kpis" style="margin-top:16px"></div>
+
+    <div class="panel">
+      <div class="ph"><h3>🔔 Requiere atención hoy</h3><span class="hint">Ventas con acción pendiente ordenadas por urgencia</span></div>
+      <div class="pb" style="padding:0"><div id="attentionList"></div></div>
+    </div>
+  </section>
+
+  <!-- VENTAS -->
+  <section class="view" id="v-ventas">
+    <div class="toolbar">
+      <input type="text" id="ventaSearch" placeholder="Buscar por # venta, comprador, producto o SKU…" oninput="renderVentas()">
+      <select id="ventaEstado" onchange="renderVentas()"><option value="">Todos los estados</option></select>
+      <label class="chip" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ventaHoy" onchange="renderVentas()"> Sólo corte de hoy</label>
+      <label class="chip" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ventaRep" onchange="renderVentas()"> Sólo riesgo reputación</label>
+      <div class="spacer"></div>
+      <button class="btn gh sm" onclick="openEPImport()">🔄 Estados Envío Pack</button>
+      <button class="btn y sm" onclick="openVenta()">＋ Nueva venta</button>
+    </div>
+    <div class="tablewrap">
+      <table id="ventasTable">
+        <thead><tr>
+          <th>Rep</th><th># Venta</th><th>Corte</th><th>Comprador</th><th>Producto / SKU</th><th>Un.</th>
+          <th>Estado</th><th>Envío Pack</th><th>Acciones</th>
+        </tr></thead>
+        <tbody id="ventasBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- COLECTA -->
+  <section class="view" id="v-colecta">
+    <div class="banner">🚚 <b>Monitoreo de colecta (post-corte).</b> Estas ventas todavía no fueron despachadas/colectadas por Envío Pack. Pedí <b>Prioridad Urgente</b> para las demoradas.</div>
+    <div class="grid kpis" id="colectaKpis"></div>
+    <div class="tablewrap" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Rep</th><th># Venta</th><th>Corte</th><th>Comprador</th><th>Producto</th><th>Estado</th><th>Envío Pack</th><th>Prioridad</th><th>Acciones</th></tr></thead>
+        <tbody id="colectaBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- REPUTACIÓN -->
+  <section class="view" id="v-reputacion">
+    <div class="grid kpis" id="repKpis"></div>
+    <div class="panel">
+      <div class="ph"><h3>⚠️ Casos que afectan la reputación</h3><span class="hint">Demoras, vencimientos y defectos que impactan tu MELI</span></div>
+      <div class="tablewrap" style="border:none;box-shadow:none;border-radius:0">
+        <table>
+          <thead><tr><th># Venta</th><th>Comprador</th><th>Motivo</th><th>Estado</th><th>Días</th><th>Acción sugerida</th><th></th></tr></thead>
+          <tbody id="repBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- STOCK -->
+  <section class="view" id="v-stock">
+    <div class="toolbar">
+      <input type="text" id="stockSearch" placeholder="Buscar por SKU o producto…" oninput="renderStock()">
+      <select id="stockFiltro" onchange="renderStock()"><option value="">Todos</option><option value="con">Con stock</option><option value="bajo">Stock bajo</option><option value="sin">Sin stock</option></select>
+      <select id="stockOrden" onchange="renderStock()"><option value="cant_desc">Stock: mayor → menor</option><option value="cant_asc">Stock: menor → mayor</option><option value="falt">Faltante (bajo primero)</option><option value="vend_desc">Más vendido</option></select>
+      <div class="spacer"></div>
+      <button class="btn gh sm" onclick="openStockImport()">⬆ Importar stock (CSV)</button>
+      <button class="btn y sm" onclick="openStock()">＋ Nuevo producto</button>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Estado</th><th>SKU</th><th>Producto</th><th>Stock</th><th>Mínimo</th><th>Ubicación</th><th>Vendido (activas)</th><th>Acciones</th></tr></thead>
+        <tbody id="stockBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GUÍA -->
+  <section class="view" id="v-guia">
+    <div class="panel">
+      <div class="ph"><h3>🗓️ Cronograma diario</h3><span class="hint">Tu checklist se reinicia cada día — <span id="guiaFecha"></span></span></div>
+      <div class="pb">
+        <div class="steps" id="guiaChecklist"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h3>🔄 Flujo del proceso (referencia rápida)</h3></div>
+      <div class="pb">
+        <div class="steps">
+          <div class="stepc"><div class="sh"><span class="num">1</span> Listado de ventas</div><div class="sb"><div class="t">Validar ingreso</div><div class="d">Chequear que la venta tenga tipo de envío <b>Envíos Flex</b> activo.</div></div></div>
+          <div class="stepc"><div class="sh"><span class="num">2</span> ¿Antes del corte 21:00?</div><div class="sb"><div class="t">Definir el día</div><div class="d"><b>Sí:</b> entrega el mismo día. <b>No:</b> se programa para el próximo día hábil.</div></div></div>
+          <div class="stepc"><div class="sh"><span class="num">3</span> Dirección correcta</div><div class="sb"><div class="t">Comparar vs MELI</div><div class="d">Comparar la dirección del chat contra MELI. Estado: por empaquetar / imprimir etiqueta.</div></div></div>
+          <div class="stepc"><div class="sh"><span class="num">4</span> Envío Pack</div><div class="sb"><div class="t">Checkear stock</div><div class="d">Confirmar que se imprimió la etiqueta y se despachó.</div></div></div>
+        </div>
+        <h4 style="margin:20px 0 10px">Impacto en reputación</h4>
+        <div class="repcols">
+          <div class="repcard good"><h4>✅ No afecta — Entregado a tiempo</h4><ul>
+            <li>El paquete se colecta y entrega dentro de la franja.</li>
+            <li>Estado Envío Pack: "Despachado" / "Entregado".</li>
+            <li>Acción: actualizar el estado en la app.</li></ul></div>
+          <div class="repcard bad"><h4>🚨 Afecta — Demora por Envío Pack</h4><ul>
+            <li>No se despachó a tiempo o no hay stock.</li>
+            <li>Acción: pedir a Envío Pack <b>Prioridad Urgente por demora</b>.</li>
+            <li>Avisar al comprador: prioridad de despacho en 24 hs.</li></ul></div>
+          <div class="repcard good"><h4>🏠 No afecta (si se reprograma) — Dirección incompleta</h4><ul>
+            <li>Solicitar dirección correcta por mensajería.</li>
+            <li>Envío Pack: "Dirección incompleta".</li>
+            <li>Pedir al comprador dirección exacta + CP.</li></ul></div>
+          <div class="repcard bad"><h4>⌛ Afecta — Sin respuesta / plazo vencido</h4><ul>
+            <li>Pasaron 3 días hábiles sin respuesta del comprador.</li>
+            <li>Acción: solicitar cancelación por falta de confirmación.</li>
+            <li>Estado: "Colecta cancelada por falta de datos".</li></ul></div>
+          <div class="repcard bad"><h4>📦 Afecta — Producto roto / incompleto / diferente</h4><ul>
+            <li>Pedir evidencia fotográfica del producto y la etiqueta.</li>
+            <li>Informar a Envío Pack para evitarlo a futuro.</li>
+            <li>Reclamo con MELI + reembolso de Envío Pack si es su responsabilidad.</li></ul></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h3>💬 Mensajes listos para el comprador</h3><span class="hint">Tocá "Copiar" y pegá en el chat de MELI</span></div>
+      <div class="pb"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))" id="msgGrid"></div></div>
+    </div>
+  </section>
+</main>
+
+<!-- ===== MODALES ===== -->
+<div class="overlay hidden" id="modal"><div class="modal" id="modalCard"></div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ CONFIG DEL DOMINIO ============ */
+const ESTADOS = {
+  nueva:      {label:'Nueva',              cls:'b-grey', rep:false, grupo:'validar',  colecta:true},
+  empaquetar: {label:'Por empaquetar',     cls:'b-warn', rep:false, grupo:'despachar',colecta:true},
+  despachado: {label:'Despachado',         cls:'b-info', rep:false, grupo:'transito', colecta:false},
+  entregado:  {label:'Entregado',          cls:'b-ok',   rep:false, grupo:'ok',       colecta:false},
+  demorado:   {label:'Demorado',           cls:'b-risk', rep:true,  grupo:'riesgo',   colecta:true},
+  esperando:  {label:'Esperando datos',    cls:'b-wait', rep:false, grupo:'espera',   colecta:true},
+  cancelada:  {label:'Cancelada s/ datos', cls:'b-risk', rep:true,  grupo:'cerrado',  colecta:false},
+  postventa:  {label:'Post-venta / Defecto',cls:'b-risk',rep:true,  grupo:'riesgo',   colecta:false},
+  cerrado:    {label:'Cerrado',            cls:'b-grey', rep:false, grupo:'cerrado',  colecta:false},
+};
+const EP_ESTADOS = ['—','Etiqueta generada','En depósito','Preparado','Despachado','En Distribución','En Transito','Demorado','No colectada','Entregado','No entregado','Dirección incompleta','Colecta cancelada','Cancelado'];
+const REP_MOTIVO = {demorado:'Demora en despacho', cancelada:'Vencimiento (sin datos)', postventa:'Producto defectuoso/diferente'};
+const ACCION_SUG = {
+  demorado:'Pedir Prioridad Urgente a Envío Pack + avisar al comprador (24 hs).',
+  cancelada:'Solicitar cancelación por falta de confirmación y cerrar.',
+  postventa:'Pedir fotos, abrir reclamo MELI y evaluar reembolso de Envío Pack.'
+};
+const MENSAJES = [
+  {t:'⚡ Demora en el despacho', icon:'b-warn', txt:'¡Hola! Te comento que tu envío tiene prioridad de despacho y sale en las próximas 24 hs. ¡Gracias por la paciencia!'},
+  {t:'🏠 Falta dirección / CP', icon:'b-wait', txt:'¡Hola! Para poder despachar tu pedido necesitamos que nos confirmes tu dirección exacta y el código postal. ¡Gracias!'},
+  {t:'⌛ Cierre por vencimiento', icon:'b-risk', txt:'¡Hola! Por vencimiento del plazo de respuesta procedemos al cierre de la solicitud. Cualquier cosa quedamos a disposición.'},
+  {t:'📦 Producto con inconveniente', icon:'b-risk', txt:'¡Hola! Lamentamos el inconveniente. ¿Nos podés enviar fotos del producto y de la etiqueta recibida para darte una solución lo antes posible?'},
+];
+const CRONOGRAMA = [
+  {num:1, hora:'08:30–10:00', tit:'Mañana · Carga & validación', items:[
+    'Volcar/importar todas las ventas con corte de despacho de hoy.',
+    'Consultar estado inicial en Envío Pack ("Etiqueta generada" / "En depósito").',
+    'Detectar faltantes de datos/dirección e iniciar mensaje de reprogramación.']},
+  {num:2, hora:'14:00–16:00', tit:'Post-corte · Monitoreo de colecta', items:[
+    'Filtrar ventas "Por empaquetar" o "No colectadas".',
+    'Solicitar Prioridad Urgente a Envío Pack para los paquetes demorados.',
+    'Actualizar las respuestas de Envío Pack en la app.']},
+  {num:3, hora:'18:00–19:00', tit:'Cierre · Control & cierre de casos', items:[
+    'Actualizar las ventas entregadas.',
+    'Revisar casos en espera que cumplieron 3 días sin respuesta y cerrarlos.',
+    'Medir el % total de envíos en riesgo de reputación.']},
+];
+
+/* ============ ESTADO / DATA LAYER ============ */
+let VENTAS = [], STOCK = [];
+const LS = {
+  cfg:'flexops.cfg', ventas:'flexops.ventas', stock:'flexops.stock', check:'flexops.check'
+};
+let sb = null, backend = 'local';
+
+function getCfg(){ try{return JSON.parse(localStorage.getItem(LS.cfg))||{}}catch(e){return {}} }
+function setCfg(c){ localStorage.setItem(LS.cfg, JSON.stringify(c)); }
+
+// Reusa el MISMO Supabase de Ganga Home leyendo la config de una app hermana ya publicada
+// (mismo origen en github.io). Así todas las compus comparten datos sin configurar nada.
+async function bootstrapSupa(){
+  try{
+    if(location.protocol==='file:') return null; // en local no hay hermanas
+    for(const f of ['catalogo-salud.html','clevel-dashboard-ml.html']){
+      let t=''; try{ const r=await fetch(f,{cache:'no-store'}); if(r.ok) t=await r.text(); }catch(e){}
+      if(!t) continue;
+      const url=(t.match(/https:\/\/[a-z0-9]+\.supabase\.co/)||[])[0];
+      const tok=(t.match(/[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}/)||[])[0];
+      if(url&&tok){ const c={url,key:tok,email:'Ganga Home (compartido)'}; setCfg(c); return c; }
+    }
+  }catch(e){}
+  return null;
+}
+async function initBackend(){
+  let c = getCfg();
+  if((!c.url||!c.key)) c = (await bootstrapSupa()) || c;   // auto-conexión turnkey
+  if(c.url && c.key && window.supabase){
+    try{
+      sb = window.supabase.createClient(c.url, c.key);
+      backend='supabase';
+      setConn(true, c.email||'Supabase');
+      return;
+    }catch(e){ console.warn('Supabase init falló', e); }
+  }
+  backend='local'; setConn(false);
+}
+function setConn(on, who){
+  const dot=document.getElementById('connDot'), lbl=document.getElementById('connLabel');
+  if(on){ dot.className='dot on'; lbl.textContent='Compartido · '+(who||'Supabase'); }
+  else { dot.className='dot local'; lbl.textContent='Modo local'; }
+}
+
+/* Carga */
+async function loadAll(){
+  if(backend==='supabase'){
+    try{
+      const [v,s] = await Promise.all([
+        sb.from('flex_ventas').select('*').order('fecha_venta',{ascending:false}),
+        sb.from('flex_stock').select('*').order('producto',{ascending:true})
+      ]);
+      if(v.error) throw v.error; if(s.error) throw s.error;
+      VENTAS = v.data||[]; STOCK = s.data||[];
+    }catch(e){ toast('Error leyendo Supabase: '+e.message); backend='local'; setConn(false); loadLocal(); }
+  } else loadLocal();
+  renderAll();
+}
+function loadLocal(){
+  try{VENTAS=JSON.parse(localStorage.getItem(LS.ventas))||[]}catch(e){VENTAS=[]}
+  try{STOCK=JSON.parse(localStorage.getItem(LS.stock))||[]}catch(e){STOCK=[]}
+}
+function saveLocal(){
+  localStorage.setItem(LS.ventas, JSON.stringify(VENTAS));
+  localStorage.setItem(LS.stock, JSON.stringify(STOCK));
+}
+
+/* Upsert genérico */
+async function upsertVenta(v){
+  const i = VENTAS.findIndex(x=>x.orden_ml===v.orden_ml && v.orden_ml);
+  v.updated_at = new Date().toISOString();
+  if(i>=0) VENTAS[i] = {...VENTAS[i], ...v}; else { v.id = v.id||uid(); VENTAS.unshift(v); }
+  if(backend==='supabase'){
+    const {error} = await sb.from('flex_ventas').upsert(cleanRow(i>=0?VENTAS[i]:v), {onConflict:'orden_ml'});
+    if(error) toast('Supabase: '+error.message);
+  } else saveLocal();
+}
+async function upsertStock(s){
+  const i = STOCK.findIndex(x=>x.sku && x.sku.toLowerCase()===(s.sku||'').toLowerCase());
+  s.updated_at = new Date().toISOString();
+  if(i>=0) STOCK[i]={...STOCK[i], ...s}; else { s.id=s.id||uid(); STOCK.push(s); }
+  if(backend==='supabase'){
+    const {error} = await sb.from('flex_stock').upsert(cleanRow(i>=0?STOCK[i]:s), {onConflict:'sku'});
+    if(error) toast('Supabase: '+error.message);
+  } else saveLocal();
+}
+async function deleteVenta(id){
+  const v=VENTAS.find(x=>x.id===id); VENTAS=VENTAS.filter(x=>x.id!==id);
+  if(backend==='supabase' && v) await sb.from('flex_ventas').delete().eq('orden_ml', v.orden_ml);
+  else saveLocal(); renderAll();
+}
+async function deleteStock(id){
+  const s=STOCK.find(x=>x.id===id); STOCK=STOCK.filter(x=>x.id!==id);
+  if(backend==='supabase' && s) await sb.from('flex_stock').delete().eq('sku', s.sku);
+  else saveLocal(); renderAll();
+}
+function cleanRow(o){ const {..._}=o; return _; }
+function uid(){ return 'id'+Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
+
+/* Guardado en LOTE (para importaciones grandes: evita 1 request por fila) */
+async function flushVentas(rows){
+  if(!rows||!rows.length) return true;
+  if(backend==='supabase'){
+    const uniq=[...new Map(rows.map(r=>[r.orden_ml,r])).values()].map(cleanRow);
+    for(let i=0;i<uniq.length;i+=400){
+      const {error}=await sb.from('flex_ventas').upsert(uniq.slice(i,i+400),{onConflict:'orden_ml'});
+      if(error){ toast('Supabase: '+error.message); return false; }
+    }
+  } else saveLocal();
+  return true;
+}
+async function flushStock(rows){
+  if(!rows||!rows.length) return true;
+  if(backend==='supabase'){
+    const uniq=[...new Map(rows.map(r=>[(r.sku||'').toLowerCase(),r])).values()].map(cleanRow);
+    for(let i=0;i<uniq.length;i+=400){
+      const {error}=await sb.from('flex_stock').upsert(uniq.slice(i,i+400),{onConflict:'sku'});
+      if(error){ toast('Supabase: '+error.message); return false; }
+    }
+  } else saveLocal();
+  return true;
+}
+
+/* ============ HELPERS ============ */
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fmtDate(s){ if(!s) return '—'; const d=new Date(s); if(isNaN(d)) return s; return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); }
+function isToday(s){ if(!s) return false; return (s+'').slice(0,10)===todayStr(); }
+function isPast(s){ if(!s) return false; return (s+'').slice(0,10) < todayStr(); }
+function afectaRep(v){ return ESTADOS[v.estado]?.rep || v.afecta_reputacion===true; }
+function esColecta(v){ return ESTADOS[v.estado]?.colecta; }
+function activa(v){ return !['entregado','cerrado','cancelada'].includes(v.estado); }
+function diasEspera(v){ if(!v.fecha_venta) return 0; const d=Math.floor((Date.now()-new Date(v.fecha_venta))/86400000); return isNaN(d)?0:d; }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function badge(estado){ const e=ESTADOS[estado]||ESTADOS.nueva; return `<span class="badge ${e.cls}">${e.label}</span>`; }
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+function copyText(txt){ navigator.clipboard.writeText(txt).then(()=>toast('Copiado ✔')).catch(()=>toast('No se pudo copiar')); }
+
+/* ============ NAV ============ */
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('v-'+b.dataset.v).classList.add('active');
+});
+function goTab(v, filter){
+  document.querySelector(`#tabs button[data-v="${v}"]`).click();
+  if(v==='ventas' && filter){
+    if(filter.estado){ document.getElementById('ventaEstado').value=filter.estado; }
+    if(filter.hoy){ document.getElementById('ventaHoy').checked=true; }
+    if(filter.rep){ document.getElementById('ventaRep').checked=true; }
+    renderVentas();
+  }
+}
+
+/* ============ RENDER ============ */
+function renderAll(){ renderPanel(); renderVentas(); renderColecta(); renderRep(); renderStock(); renderGuia(); renderCounts(); }
+function renderCounts(){
+  document.getElementById('nVentas').textContent = VENTAS.filter(activa).length;
+  document.getElementById('nColecta').textContent = VENTAS.filter(v=>activa(v)&&esColecta(v)).length;
+  document.getElementById('nRep').textContent = VENTAS.filter(v=>activa(v)&&afectaRep(v)).length;
+  document.getElementById('nStock').textContent = STOCK.filter(s=>Number(s.cantidad)<=Number(s.minimo||0)).length;
+}
+
+/* ----- PANEL ----- */
+function renderPanel(){
+  // Qué hacer ahora (según hora AR)
+  const h = new Date().getHours();
+  let idx = h<12?0:(h<17?1:2);
+  const blk = CRONOGRAMA[idx];
+  document.getElementById('nowBox').innerHTML = `
+    <div class="now">
+      <span class="tag">AHORA · ${blk.hora}</span>
+      <h2>${blk.tit}</h2>
+      <p>Bloque sugerido del cronograma diario. Guía completa en la pestaña "Guía del equipo".</p>
+      <ul>${blk.items.map(i=>`<li><span class="k">▸</span><span>${i}</span></li>`).join('')}</ul>
+    </div>`;
+
+  const hoy = VENTAS.filter(v=>isToday(v.fecha_limite)||isToday(v.fecha_venta));
+  const pendDespacho = VENTAS.filter(v=>['nueva','empaquetar'].includes(v.estado));
+  const lateHoy = VENTAS.filter(v=>['nueva','empaquetar'].includes(v.estado) && (isToday(v.fecha_limite)||isPast(v.fecha_limite)));
+  const enColecta = VENTAS.filter(v=>activa(v)&&esColecta(v));
+  const riesgo = VENTAS.filter(v=>activa(v)&&afectaRep(v));
+  const totalAct = VENTAS.filter(activa).length;
+  const pctRiesgo = totalAct? Math.round(riesgo.length/totalAct*100):0;
+  const stockBajo = STOCK.filter(s=>Number(s.cantidad)<=Number(s.minimo||0));
+
+  document.getElementById('kpis').innerHTML = [
+    kpi('Ventas de hoy', hoy.length, 'Con corte / fecha de hoy','',{v:'ventas',f:{hoy:true}}),
+    kpi('Por despachar', pendDespacho.length, 'Nuevas + por empaquetar','warn',{v:'ventas',f:{estado:''}}),
+    kpi('⏰ Urgentes hoy', lateHoy.length, 'Corte hoy y sin despachar', lateHoy.length?'risk':'', {v:'ventas',f:{hoy:true}}),
+    kpi('En colecta', enColecta.length, 'Esperando a Envío Pack','',{v:'colecta'}),
+    kpi('Riesgo reputación', riesgo.length, pctRiesgo+'% de las activas', riesgo.length?'risk':'ok',{v:'reputacion'}),
+    kpi('Stock bajo', stockBajo.length, 'En o bajo el mínimo', stockBajo.length?'warn':'ok',{v:'stock'}),
+  ].join('');
+
+  // Atención
+  const att = VENTAS.filter(activa).map(v=>({v, sc:urgencia(v)})).filter(x=>x.sc>0).sort((a,b)=>b.sc-a.sc).slice(0,12);
+  const el = document.getElementById('attentionList');
+  if(!att.length){ el.innerHTML = `<div class="empty"><div class="big">Todo al día ✅</div>No hay ventas que requieran acción inmediata.</div>`; return; }
+  el.innerHTML = `<table><thead><tr><th></th><th># Venta</th><th>Comprador</th><th>Motivo</th><th>Estado</th><th></th></tr></thead><tbody>${
+    att.map(({v})=>`<tr>
+      <td>${afectaRep(v)?'<span class="rep-dot" style="background:var(--risk)"></span>':''}</td>
+      <td class="b">${esc(v.orden_ml||'—')}</td>
+      <td>${esc(v.comprador||'—')}</td>
+      <td class="small">${motivoAtencion(v)}</td>
+      <td>${badge(v.estado)}</td>
+      <td><button class="link" onclick="openVenta('${v.id}')">Abrir →</button></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+function urgencia(v){
+  let s=0;
+  if(v.estado==='demorado') s+=100;
+  if(v.estado==='postventa') s+=90;
+  if(['nueva','empaquetar'].includes(v.estado) && (isToday(v.fecha_limite)||isPast(v.fecha_limite))) s+=80;
+  if(v.estado==='esperando'){ s+=40; if(diasEspera(v)>=3) s+=40; }
+  if(v.estado==='empaquetar') s+=20;
+  if(v.estado==='nueva') s+=15;
+  return s;
+}
+function motivoAtencion(v){
+  if(v.estado==='demorado') return '🚨 Demorado — pedir prioridad a Envío Pack';
+  if(v.estado==='postventa') return '📦 Reclamo post-venta abierto';
+  if(v.estado==='esperando') return diasEspera(v)>=3?'⌛ 3+ días sin respuesta — cerrar':'🏠 Falta dirección/datos del comprador';
+  if(['nueva','empaquetar'].includes(v.estado) && isPast(v.fecha_limite)) return '⏰ Corte vencido, sin despachar';
+  if(['nueva','empaquetar'].includes(v.estado) && isToday(v.fecha_limite)) return '⏰ Corte hoy — despachar antes de 21:00';
+  if(v.estado==='empaquetar') return 'Falta imprimir etiqueta / despachar';
+  if(v.estado==='nueva') return 'Validar datos e ingreso';
+  return '';
+}
+function kpi(lbl,val,sub,cls,nav){
+  const on = nav?`onclick="goTab('${nav.v}',${JSON.stringify(nav.f||{}).replace(/"/g,'&quot;')})"`:'';
+  return `<div class="kpi ${cls||''} ${nav?'click':''}" ${on}><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="sub">${sub}</div></div>`;
+}
+
+/* ----- VENTAS ----- */
+function fillEstadoSelect(){
+  const sel=document.getElementById('ventaEstado');
+  sel.innerHTML='<option value="">Todos los estados</option>'+Object.entries(ESTADOS).map(([k,e])=>`<option value="${k}">${e.label}</option>`).join('');
+}
+function renderVentas(){
+  const q=(document.getElementById('ventaSearch').value||'').toLowerCase();
+  const est=document.getElementById('ventaEstado').value;
+  const hoy=document.getElementById('ventaHoy').checked;
+  const rep=document.getElementById('ventaRep').checked;
+  let rows=VENTAS.slice();
+  if(est) rows=rows.filter(v=>v.estado===est); else rows=rows.filter(activa);
+  if(hoy) rows=rows.filter(v=>isToday(v.fecha_limite)||isToday(v.fecha_venta));
+  if(rep) rows=rows.filter(afectaRep);
+  if(q) rows=rows.filter(v=>[v.orden_ml,v.comprador,v.publicacion,v.sku].join(' ').toLowerCase().includes(q));
+  rows.sort((a,b)=>urgencia(b)-urgencia(a));
+  const b=document.getElementById('ventasBody');
+  if(!rows.length){ b.innerHTML=`<tr><td colspan="9"><div class="empty"><div class="big">Sin ventas</div>Importá el Excel de Mercado Libre o cargá una venta manual.</div></td></tr>`; return; }
+  b.innerHTML=rows.map(v=>{
+    const late=['nueva','empaquetar'].includes(v.estado)&&isPast(v.fecha_limite);
+    return `<tr>
+      <td>${afectaRep(v)?'<span class="rep-dot" title="Afecta reputación" style="background:var(--risk)"></span>':'<span class="rep-dot" style="background:#d7dce6"></span>'}</td>
+      <td class="b">${esc(v.orden_ml||'—')}</td>
+      <td class="${late?'late':''}">${fmtDate(v.fecha_limite||v.fecha_venta)}${late?' ⏰':''}</td>
+      <td>${esc(v.comprador||'—')}</td>
+      <td>${esc((v.publicacion||'—')).slice(0,42)}<div class="muted small">${esc(v.sku||'')}</div></td>
+      <td>${esc(v.unidades||1)}</td>
+      <td>${estadoSelect(v)}</td>
+      <td>${epSelect(v)}</td>
+      <td><button class="link" onclick="openVenta('${v.id}')">Ver</button></td>
+    </tr>`;
+  }).join('');
+}
+function estadoSelect(v){
+  return `<select class="mini" onchange="setEstado('${v.id}',this.value)">${
+    Object.entries(ESTADOS).map(([k,e])=>`<option value="${k}" ${v.estado===k?'selected':''}>${e.label}</option>`).join('')}</select>`;
+}
+function epSelect(v){
+  const cur=v.estado_envio_pack||'—';
+  const opts=EP_ESTADOS.includes(cur)?EP_ESTADOS:[cur,...EP_ESTADOS];
+  return `<select class="mini" onchange="setEP('${v.id}',this.value)">${
+    opts.map(e=>`<option ${cur===e?'selected':''}>${esc(e)}</option>`).join('')}</select>`;
+}
+async function setEstado(id,val){ const v=VENTAS.find(x=>x.id===id); if(!v)return; v.estado=val; await upsertVenta(v); renderAll(); }
+async function setEP(id,val){ const v=VENTAS.find(x=>x.id===id); if(!v)return; v.estado_envio_pack=val; await upsertVenta(v); renderAll(); }
+async function setPrioridad(id,val){ const v=VENTAS.find(x=>x.id===id); if(!v)return; v.prioridad=val; await upsertVenta(v); renderColecta(); }
+
+/* ----- COLECTA ----- */
+function renderColecta(){
+  const rows=VENTAS.filter(v=>activa(v)&&esColecta(v)).sort((a,b)=>urgencia(b)-urgencia(a));
+  const noCol=rows.filter(v=>v.estado==='demorado'||v.estado_envio_pack==='No colectada'||v.estado_envio_pack==='Demorado');
+  const urgentes=rows.filter(v=>v.prioridad==='Urgente');
+  document.getElementById('colectaKpis').innerHTML=[
+    kpi('En colecta', rows.length,'Pendientes de despacho/colecta',''),
+    kpi('Demoradas', noCol.length,'No colectadas / demoradas', noCol.length?'risk':'ok'),
+    kpi('Prioridad urgente', urgentes.length,'Marcadas para apurar','warn'),
+  ].join('');
+  const b=document.getElementById('colectaBody');
+  if(!rows.length){ b.innerHTML=`<tr><td colspan="9"><div class="empty"><div class="big">Nada en colecta 🎉</div>Todas las ventas fueron despachadas o colectadas.</div></td></tr>`; return; }
+  b.innerHTML=rows.map(v=>{
+    const late=isToday(v.fecha_limite)||isPast(v.fecha_limite);
+    return `<tr>
+      <td>${afectaRep(v)?'<span class="rep-dot" style="background:var(--risk)"></span>':''}</td>
+      <td class="b">${esc(v.orden_ml||'—')}</td>
+      <td class="${late?'late':''}">${fmtDate(v.fecha_limite||v.fecha_venta)}</td>
+      <td>${esc(v.comprador||'—')}</td>
+      <td>${esc((v.publicacion||'—')).slice(0,36)}</td>
+      <td>${estadoSelect(v)}</td>
+      <td>${epSelect(v)}</td>
+      <td><select class="mini" onchange="setPrioridad('${v.id}',this.value)"><option ${v.prioridad!=='Urgente'?'selected':''}>Normal</option><option ${v.prioridad==='Urgente'?'selected':''}>Urgente</option></select></td>
+      <td><button class="link" onclick="copyText(MENSAJES[0].txt)">💬 Avisar demora</button></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ----- REPUTACIÓN ----- */
+function renderRep(){
+  const rows=VENTAS.filter(v=>activa(v)&&afectaRep(v)).sort((a,b)=>urgencia(b)-urgencia(a));
+  const totalAct=VENTAS.filter(activa).length;
+  const pct=totalAct?Math.round(rows.length/totalAct*100):0;
+  const entregadas=VENTAS.filter(v=>v.estado==='entregado').length;
+  const okPct = (entregadas+rows.length)? Math.round(entregadas/(entregadas+rows.length)*100):100;
+  document.getElementById('repKpis').innerHTML=[
+    kpi('Casos activos', rows.length,'Afectando reputación ahora', rows.length?'risk':'ok'),
+    kpi('% en riesgo', pct+'%','Sobre ventas activas', pct>10?'risk':(pct>0?'warn':'ok')),
+    kpi('Demoras', rows.filter(v=>v.estado==='demorado').length,'Por Envío Pack','warn'),
+    kpi('Post-venta', rows.filter(v=>v.estado==='postventa').length,'Defecto / diferente','risk'),
+  ].join('');
+  const b=document.getElementById('repBody');
+  if(!rows.length){ b.innerHTML=`<tr><td colspan="7"><div class="empty"><div class="big">Reputación limpia ⭐</div>No hay casos afectando tu reputación.</div></td></tr>`; return; }
+  b.innerHTML=rows.map(v=>`<tr>
+    <td class="b">${esc(v.orden_ml||'—')}</td>
+    <td>${esc(v.comprador||'—')}</td>
+    <td>${REP_MOTIVO[v.estado]||'Marcado manual'}</td>
+    <td>${badge(v.estado)}</td>
+    <td class="${diasEspera(v)>=3?'late':''}">${diasEspera(v)}</td>
+    <td class="small">${ACCION_SUG[v.estado]||'Revisar caso.'}</td>
+    <td><button class="link" onclick="openVenta('${v.id}')">Abrir →</button></td>
+  </tr>`).join('');
+}
+
+/* ----- STOCK ----- */
+function vendidasActivas(sku){ if(!sku) return 0; return VENTAS.filter(v=>activa(v)&&(v.sku||'').toLowerCase()===sku.toLowerCase()).reduce((a,v)=>a+(Number(v.unidades)||1),0); }
+function renderStock(){
+  const q=(document.getElementById('stockSearch').value||'').toLowerCase();
+  const f=document.getElementById('stockFiltro').value;
+  const ord=document.getElementById('stockOrden').value;
+  let rows=STOCK.slice();
+  if(q) rows=rows.filter(s=>[s.sku,s.producto].join(' ').toLowerCase().includes(q));
+  if(f==='con') rows=rows.filter(s=>Number(s.cantidad)>0);
+  else if(f==='bajo') rows=rows.filter(s=>Number(s.cantidad)<=Number(s.minimo||0));
+  else if(f==='sin') rows=rows.filter(s=>Number(s.cantidad)<=0);
+  const vend=s=>vendidasActivas(s.sku);
+  if(ord==='cant_asc') rows.sort((a,b)=>Number(a.cantidad)-Number(b.cantidad));
+  else if(ord==='falt') rows.sort((a,b)=>(Number(a.cantidad)-Number(a.minimo||0))-(Number(b.cantidad)-Number(b.minimo||0)));
+  else if(ord==='vend_desc') rows.sort((a,b)=>vend(b)-vend(a));
+  else rows.sort((a,b)=>Number(b.cantidad)-Number(a.cantidad)); // por defecto: stock mayor → menor
+  const b=document.getElementById('stockBody');
+  if(!rows.length){ b.innerHTML=`<tr><td colspan="8"><div class="empty"><div class="big">Sin stock cargado</div>Cargá productos o importá un CSV con columnas SKU, Producto, Stock, Mínimo.</div></td></tr>`; return; }
+  b.innerHTML=rows.map(s=>{
+    const c=Number(s.cantidad)||0, m=Number(s.minimo||0);
+    const st = c<=0?'<span class="badge b-risk">Sin stock</span>':(c<=m?'<span class="badge b-warn">Bajo</span>':'<span class="badge b-ok">OK</span>');
+    return `<tr>
+      <td>${st}</td><td class="b">${esc(s.sku||'—')}</td><td>${esc(s.producto||'—')}</td>
+      <td class="b">${c}</td><td>${m}</td><td>${esc(s.ubicacion||'—')}</td>
+      <td>${vendidasActivas(s.sku)}</td>
+      <td><button class="link" onclick="openStock('${s.id}')">Editar</button> · <button class="link" onclick="deleteStock('${s.id}')">Borrar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ----- GUÍA ----- */
+function getCheck(){ try{return JSON.parse(localStorage.getItem(LS.check))||{}}catch(e){return {}} }
+function setCheck(o){ localStorage.setItem(LS.check, JSON.stringify(o)); }
+function renderGuia(){
+  document.getElementById('guiaFecha').textContent = new Date().toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'});
+  const store=getCheck(); const day=todayStr(); const marks=store[day]||{};
+  document.getElementById('guiaChecklist').innerHTML = CRONOGRAMA.map((blk,bi)=>`
+    <div class="stepc"><div class="sh"><span class="num">${blk.num}</span> ${blk.tit}<span style="margin-left:auto;font-weight:500;color:var(--yellow)">${blk.hora}</span></div>
+    <div class="sb"><div class="checklist">${blk.items.map((it,ii)=>{
+      const key=bi+'_'+ii; const done=marks[key];
+      return `<label class="${done?'done':''}"><input type="checkbox" ${done?'checked':''} onchange="toggleCheck('${key}',this.checked)"> ${it}</label>`;
+    }).join('')}</div></div></div>`).join('');
+  document.getElementById('msgGrid').innerHTML = MENSAJES.map(m=>`
+    <div class="msgcard"><h4><span class="badge ${m.icon}">${m.t}</span></h4><p>${esc(m.txt)}</p>
+    <button class="btn sm y" onclick='copyText(${JSON.stringify(m.txt)})'>📋 Copiar</button></div>`).join('');
+}
+function toggleCheck(key,val){ const s=getCheck(); const d=todayStr(); s[d]=s[d]||{}; s[d][key]=val; setCheck(s); renderGuia(); }
+
+/* ============ MODALES ============ */
+function openModal(html, wide){ const m=document.getElementById('modal'); document.getElementById('modalCard').className='modal'+(wide?' wide':''); document.getElementById('modalCard').innerHTML=html; m.classList.remove('hidden'); }
+function closeModal(){ document.getElementById('modal').classList.add('hidden'); }
+document.getElementById('modal').addEventListener('click',e=>{ if(e.target.id==='modal') closeModal(); });
+
+function openVenta(id){
+  const v = id? VENTAS.find(x=>x.id===id) : {estado:'nueva', unidades:1, fecha_venta:todayStr(), fecha_limite:todayStr()};
+  const isNew=!id;
+  openModal(`
+    <div class="mh"><h3>${isNew?'Nueva venta':'Venta '+esc(v.orden_ml||'')}</h3><button class="close" onclick="closeModal()">×</button></div>
+    <div class="mb">
+      <div class="row2">
+        <div class="field"><label># de venta (MELI)</label><input id="f_orden" value="${esc(v.orden_ml||'')}"></div>
+        <div class="field"><label>Unidades</label><input id="f_un" type="number" value="${esc(v.unidades||1)}"></div>
+      </div>
+      <div class="field"><label>Comprador</label><input id="f_comp" value="${esc(v.comprador||'')}"></div>
+      <div class="field"><label>Publicación / Producto</label><input id="f_pub" value="${esc(v.publicacion||'')}"></div>
+      <div class="row2">
+        <div class="field"><label>SKU</label><input id="f_sku" value="${esc(v.sku||'')}"></div>
+        <div class="field"><label>Tipo de envío</label><input id="f_tipo" value="${esc(v.tipo_envio||'Flex')}"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Fecha de venta</label><input id="f_fv" type="date" value="${(v.fecha_venta||'').slice(0,10)}"></div>
+        <div class="field"><label>Corte / límite despacho</label><input id="f_fl" type="date" value="${(v.fecha_limite||'').slice(0,10)}"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Estado</label><select id="f_est">${Object.entries(ESTADOS).map(([k,e])=>`<option value="${k}" ${v.estado===k?'selected':''}>${e.label}</option>`).join('')}</select></div>
+        <div class="field"><label>Estado Envío Pack</label><select id="f_ep">${(EP_ESTADOS.includes(v.estado_envio_pack||'—')?EP_ESTADOS:[(v.estado_envio_pack||'—'),...EP_ESTADOS]).map(e=>`<option ${((v.estado_envio_pack||'—')===e)?'selected':''}>${esc(e)}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label>Dirección / CP</label><input id="f_dir" value="${esc(v.direccion||'')}"></div>
+      <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="f_rep" ${v.afecta_reputacion?'checked':''}> Marcar manualmente como "afecta reputación"</label></div>
+      <div class="field"><label>Nota interna</label><textarea id="f_nota">${esc(v.nota||'')}</textarea></div>
+    </div>
+    <div class="mf">
+      ${!isNew?`<button class="btn danger" onclick="deleteVenta('${v.id}');closeModal()">Borrar</button>`:''}
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn gh" onclick="closeModal()">Cancelar</button>
+      <button class="btn y" onclick="saveVenta('${isNew?'':v.id}')">Guardar</button>
+    </div>`);
+}
+async function saveVenta(id){
+  const g=x=>document.getElementById(x).value;
+  const v={ id:id||uid(), orden_ml:g('f_orden').trim(), unidades:Number(g('f_un'))||1, comprador:g('f_comp').trim(),
+    publicacion:g('f_pub').trim(), sku:g('f_sku').trim(), tipo_envio:g('f_tipo').trim(),
+    fecha_venta:g('f_fv'), fecha_limite:g('f_fl'), estado:g('f_est'), estado_envio_pack:g('f_ep'),
+    direccion:g('f_dir').trim(), afecta_reputacion:document.getElementById('f_rep').checked, nota:g('f_nota').trim() };
+  if(id){ const cur=VENTAS.find(x=>x.id===id); Object.assign(cur,v); await upsertVenta(cur); }
+  else { if(!v.orden_ml) v.orden_ml='M-'+Date.now(); await upsertVenta(v); }
+  closeModal(); renderAll(); toast('Venta guardada ✔');
+}
+
+function openStock(id){
+  const s = id? STOCK.find(x=>x.id===id) : {cantidad:0,minimo:3};
+  const isNew=!id;
+  openModal(`
+    <div class="mh"><h3>${isNew?'Nuevo producto':'Editar stock'}</h3><button class="close" onclick="closeModal()">×</button></div>
+    <div class="mb">
+      <div class="row2">
+        <div class="field"><label>SKU</label><input id="s_sku" value="${esc(s.sku||'')}"></div>
+        <div class="field"><label>Ubicación</label><input id="s_ubi" value="${esc(s.ubicacion||'')}"></div>
+      </div>
+      <div class="field"><label>Producto</label><input id="s_prod" value="${esc(s.producto||'')}"></div>
+      <div class="row2">
+        <div class="field"><label>Stock actual</label><input id="s_cant" type="number" value="${esc(s.cantidad||0)}"></div>
+        <div class="field"><label>Mínimo (alerta)</label><input id="s_min" type="number" value="${esc(s.minimo||0)}"></div>
+      </div>
+    </div>
+    <div class="mf">
+      ${!isNew?`<button class="btn danger" onclick="deleteStock('${s.id}');closeModal()">Borrar</button>`:''}
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn gh" onclick="closeModal()">Cancelar</button>
+      <button class="btn y" onclick="saveStock('${isNew?'':s.id}')">Guardar</button>
+    </div>`);
+}
+async function saveStock(id){
+  const g=x=>document.getElementById(x).value;
+  const s={ id:id||uid(), sku:g('s_sku').trim(), producto:g('s_prod').trim(), ubicacion:g('s_ubi').trim(),
+    cantidad:Number(g('s_cant'))||0, minimo:Number(g('s_min'))||0 };
+  if(!s.sku){ toast('Poné un SKU'); return; }
+  if(id){ const cur=STOCK.find(x=>x.id===id); Object.assign(cur,s); await upsertStock(cur); }
+  else await upsertStock(s);
+  closeModal(); renderAll(); toast('Stock guardado ✔');
+}
+
+/* ============ IMPORT (ML Excel/CSV) ============ */
+let importRows=[], importHeaders=[];
+const MAP_FIELDS=[
+  {k:'orden_ml', lbl:'# de venta', keys:['venta','operac','order','orden','pack id','id de']},
+  {k:'fecha_venta', lbl:'Fecha de venta', keys:['fecha de venta','fecha venta','fecha','date']},
+  {k:'fecha_limite', lbl:'Corte / límite despacho', keys:['despacho','corte','límite','limite','entrega']},
+  {k:'comprador', lbl:'Comprador', keys:['comprador','cliente','nombre','buyer']},
+  {k:'publicacion', lbl:'Publicación / Producto', keys:['publicac','título','titulo','producto','ítem','item','descripc']},
+  {k:'sku', lbl:'SKU', keys:['sku','código','codigo','variante']},
+  {k:'unidades', lbl:'Unidades', keys:['unidad','cantidad','qty']},
+  {k:'monto', lbl:'Monto', keys:['total','precio','monto','facturado','ingreso']},
+  {k:'tipo_envio', lbl:'Tipo de envío', keys:['tipo de envío','tipo de envio','logística','logistica','flex','método']},
+  {k:'estado', lbl:'Estado (ML)', keys:['estado','status']},
+  {k:'direccion', lbl:'Dirección', keys:['direcc','domicilio','address']},
+];
+function norm(s){ return (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
+function guessMap(headers){
+  const map={};
+  MAP_FIELDS.forEach(f=>{
+    let found='';
+    for(const h of headers){ const n=norm(h); if(f.keys.some(k=>n.includes(norm(k)))){ found=h; break; } }
+    map[f.k]=found;
+  });
+  return map;
+}
+function openImport(){
+  openModal(`
+    <div class="mh"><h3>⬆ Importar ventas de Mercado Libre</h3><button class="close" onclick="closeModal()">×</button></div>
+    <div class="mb">
+      <p class="small muted">Subí el archivo de ventas que exporta Mercado Libre (<b>.xlsx</b> o <b>.csv</b>). Detecto las columnas solas; después podés ajustar el mapeo antes de importar.</p>
+      <div class="field"><input type="file" id="impFile" accept=".xlsx,.xls,.csv" onchange="handleFile(event)"></div>
+      <div id="impMap"></div>
+    </div>
+    <div class="mf"><button class="btn gh" onclick="closeModal()">Cancelar</button><button class="btn y" id="impBtn" disabled onclick="doImport()">Importar</button></div>`, true);
+}
+function handleFile(ev){
+  const file=ev.target.files[0]; if(!file) return;
+  const isCsv=/\.csv$/i.test(file.name);
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb = isCsv
+        ? XLSX.read(e.target.result, {type:'string', cellDates:true})           // CSV como texto UTF-8 (evita mojibake)
+        : XLSX.read(new Uint8Array(e.target.result), {type:'array', cellDates:true});
+      // buscar la hoja con más filas
+      let best=wb.SheetNames[0], bestN=0;
+      wb.SheetNames.forEach(n=>{ const j=XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:'',raw:true}); if(j.length>bestN){bestN=j.length;best=n;} });
+      let json=XLSX.utils.sheet_to_json(wb.Sheets[best],{defval:'',raw:true});
+      // algunos reportes ML tienen filas de encabezado arriba: detectar fila real de headers
+      if(json.length && Object.keys(json[0]).every(k=>/^__EMPTY|^Column/i.test(k))){
+        const arr=XLSX.utils.sheet_to_json(wb.Sheets[best],{header:1,defval:'',raw:true});
+        let hi=arr.findIndex(r=>r.filter(c=>c!=='').length>=4);
+        if(hi>=0){ const headers=arr[hi].map(x=>x||''); json=arr.slice(hi+1).map(r=>{const o={};headers.forEach((h,i)=>o[h]=r[i]!==undefined?r[i]:'');return o;}).filter(o=>Object.values(o).some(v=>v!=='')); }
+      }
+      importRows=json; importHeaders=json.length?Object.keys(json[0]):[];
+      showMap();
+    }catch(err){ toast('No pude leer el archivo: '+err.message); }
+  };
+  if(isCsv) reader.readAsText(file,'UTF-8'); else reader.readAsArrayBuffer(file);
+}
+function showMap(){
+  if(!importRows.length){ document.getElementById('impMap').innerHTML='<div class="banner">No encontré filas de datos en el archivo.</div>'; return; }
+  const map=guessMap(importHeaders);
+  const opt=h=>`<option value="">— ninguna —</option>`+importHeaders.map(x=>`<option value="${esc(x)}" ${map[h]===x?'selected':''}>${esc(x)}</option>`).join('');
+  document.getElementById('impMap').innerHTML=`
+    <div class="banner">✔ Detecté <b>${importRows.length}</b> filas. Revisá el mapeo de columnas:</div>
+    <div class="row2">${MAP_FIELDS.map(f=>`<div class="field"><label>${f.lbl}</label><select id="map_${f.k}">${opt(f.k)}</select></div>`).join('')}</div>
+    <p class="small muted">Las ventas se cargan/actualizan por <b># de venta</b> (no se duplican). Si una columna no existe en tu archivo, dejala en "ninguna".</p>`;
+  document.getElementById('impBtn').disabled=false;
+}
+async function doImport(){
+  const get=k=>document.getElementById('map_'+k)?.value;
+  const cols={}; MAP_FIELDS.forEach(f=>cols[f.k]=get(f.k));
+  let added=0, upd=0, skip=0; const touched=[]; const now=new Date().toISOString();
+  for(const r of importRows){
+    const v={};
+    MAP_FIELDS.forEach(f=>{ if(cols[f.k]) v[f.k]=r[cols[f.k]]; });
+    if(!v.orden_ml){ // sin # de venta, generamos uno estable por fila
+      if(!v.comprador && !v.publicacion){ skip++; continue; }
+      v.orden_ml='IMP-'+norm(v.comprador).slice(0,6)+'-'+norm(v.publicacion).slice(0,6);
+    }
+    v.orden_ml=String(v.orden_ml).trim();
+    // fechas -> YYYY-MM-DD
+    ['fecha_venta','fecha_limite'].forEach(f=>{ if(v[f]) v[f]=parseFecha(v[f]); });
+    if(!v.fecha_limite && v.fecha_venta) v.fecha_limite=v.fecha_venta;
+    v.unidades=Number(v.unidades)||1;
+    // estado inicial: mapear texto de ML -> nuestro estado
+    v.estado=mapEstado(v.estado);
+    v.estado_envio_pack=v.estado_envio_pack||'—';
+    const exist=VENTAS.find(x=>x.orden_ml===v.orden_ml);
+    if(exist){ // no piso estado ya trabajado, sólo completo datos faltantes
+      ['comprador','publicacion','sku','tipo_envio','fecha_venta','fecha_limite','unidades','monto','direccion'].forEach(f=>{ if(v[f]!==undefined&&v[f]!=='') exist[f]=v[f]; });
+      exist.updated_at=now; touched.push(exist); upd++;
+    } else { v.id=uid(); v.updated_at=now; VENTAS.unshift(v); touched.push(v); added++; }
+  }
+  const ok=await flushVentas(touched);
+  closeModal(); renderAll();
+  toast(`Importado: ${added} nuevas, ${upd} actualizadas${skip?', '+skip+' omitidas':''}${ok?'':' · error de sync'}`);
+}
+function mapEstado(txt){
+  const n=norm(txt);
+  if(!n) return 'nueva';
+  if(n.includes('entreg')) return 'entregado';
+  if(n.includes('despach')||n.includes('camino')||n.includes('transit')) return 'despachado';
+  if(n.includes('cancel')) return 'cancelada';
+  if(n.includes('demor')||n.includes('retras')) return 'demorado';
+  if(n.includes('empaq')||n.includes('imprim')||n.includes('preparac')||n.includes('pendiente')) return 'empaquetar';
+  return 'nueva';
+}
+function parseFecha(x){
+  if(x==null||x==='') return '';
+  if(x instanceof Date){ if(!isNaN(x)) return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; return ''; }
+  if(typeof x==='number'){ const d=XLSX.SSF?XLSX.SSF.parse_date_code(x):null; if(d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; }
+  const s=String(x).trim();
+  let m=s.match(/(\d{4})-(\d{2})-(\d{2})/); if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m=s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/); if(m){ let[_,d,mo,y]=m; if(y.length===2)y='20'+y; return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+  const d=new Date(s); if(!isNaN(d)) return d.toISOString().slice(0,10);
+  return '';
+}
+
+function openStockImport(){
+  openModal(`
+    <div class="mh"><h3>⬆ Importar stock (CSV/Excel)</h3><button class="close" onclick="closeModal()">×</button></div>
+    <div class="mb">
+      <p class="small muted">Archivo con columnas <b>SKU, Producto, Stock, Mínimo, Ubicación</b> (los nombres pueden variar, detecto solo).</p>
+      <div class="field"><input type="file" id="stkFile" accept=".xlsx,.xls,.csv" onchange="handleStockFile(event)"></div>
+      <div id="stkInfo"></div>
+    </div>
+    <div class="mf"><button class="btn gh" onclick="closeModal()">Cancelar</button><button class="btn y" id="stkBtn" disabled onclick="doStockImport()">Importar</button></div>`);
+}
+let stockRows=[];
+function handleStockFile(ev){
+  const f=ev.target.files[0]; if(!f) return;
+  const isCsv=/\.csv$/i.test(f.name);
+  const rd=new FileReader();
+  rd.onload=e=>{ try{
+    const wb = isCsv ? XLSX.read(e.target.result,{type:'string'}) : XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    stockRows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:'',raw:true});
+    document.getElementById('stkInfo').innerHTML=`<div class="banner">✔ ${stockRows.length} filas detectadas.</div>`;
+    document.getElementById('stkBtn').disabled=false;
+  }catch(err){ toast('Error: '+err.message); } };
+  if(isCsv) rd.readAsText(f,'UTF-8'); else rd.readAsArrayBuffer(f);
+}
+async function doStockImport(){
+  const pick=(o,keys)=>{ for(const k of Object.keys(o)){ const n=norm(k); if(keys.some(x=>n.includes(x))) return o[k]; } return ''; };
+  const touched=[]; const now=new Date().toISOString();
+  for(const r of stockRows){
+    const sku=String(pick(r,['sku','codigo','código'])||'').trim(); if(!sku) continue;
+    const s={ sku, producto:String(pick(r,['producto','descripc','nombre','título','titulo'])||'').trim(),
+      cantidad:Number(pick(r,['stock','cantidad','existencia','disponible']))||0,
+      minimo:Number(pick(r,['mínimo','minimo','min','alerta']))||0,
+      ubicacion:String(pick(r,['ubicac','depósito','deposito','pasillo'])||'').trim(), updated_at:now };
+    const i=STOCK.findIndex(x=>x.sku && x.sku.toLowerCase()===sku.toLowerCase());
+    if(i>=0){ STOCK[i]={...STOCK[i], ...s}; touched.push(STOCK[i]); }
+    else { s.id=uid(); STOCK.push(s); touched.push(s); }
+  }
+  const ok=await flushStock(touched);
+  closeModal(); renderAll(); toast(`${touched.length} productos importados${ok?' ✔':' · error de sync'}`);
+}
+
+/* ============ IMPORT ESTADOS ENVÍO PACK (cruce por N° de pedido) ============ */
+let epRows=[], epHeaders=[];
+const EP_MAP=[
+  {k:'pedido', lbl:'N° de pedido / venta (llave)', keys:['pedido','venta','orden','order']},
+  {k:'estado', lbl:'Estado', keys:['estado']},
+  {k:'subestado', lbl:'Sub estado', keys:['sub estado','subestado']},
+  {k:'demorado', lbl:'¿Está demorado?', keys:['demorado']},
+  {k:'destinatario', lbl:'Destinatario', keys:['destinatario','comprador','cliente']},
+  {k:'productos', lbl:'Productos', keys:['productos en el envio','productos','producto']},
+  {k:'direccion', lbl:'Dirección destino', keys:['direccion de destino','dirección de destino','destino']},
+  {k:'monto', lbl:'Monto', keys:['monto','total']},
+  {k:'fecha', lbl:'Fecha', keys:['fecha de alta','fecha']},
+];
+function guessMapEP(headers){
+  const m={};
+  EP_MAP.forEach(f=>{ let found=''; for(const h of headers){ const n=norm(h); if(f.keys.some(k=>n.includes(norm(k)))){ found=h; break; } } m[f.k]=found; });
+  return m;
+}
+function openEPImport(){
+  openModal(`
+    <div class="mh"><h3>🔄 Importar estados de Envío Pack</h3><button class="close" onclick="closeModal()">×</button></div>
+    <div class="mb">
+      <p class="small muted">Subí el Excel de <b>Envíos Procesados</b> de Envío Pack. Cruzo por el <b>N° de pedido</b> contra el # de venta de ML y actualizo el estado, el estado de Envío Pack y la demora/reputación de cada venta.</p>
+      <div class="field"><input type="file" id="epFile" accept=".xlsx,.xls,.csv" onchange="handleEPFile(event)"></div>
+      <div id="epMap"></div>
+    </div>
+    <div class="mf"><button class="btn gh" onclick="closeModal()">Cancelar</button><button class="btn y" id="epBtn" disabled onclick="doEPImport()">Cruzar y actualizar</button></div>`, true);
+}
+function handleEPFile(ev){
+  const file=ev.target.files[0]; if(!file) return;
+  const isCsv=/\.csv$/i.test(file.name);
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb = isCsv ? XLSX.read(e.target.result,{type:'string',cellDates:true}) : XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      let best=wb.SheetNames[0], bestN=0;
+      wb.SheetNames.forEach(n=>{ const j=XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:'',raw:true}); if(j.length>bestN){bestN=j.length;best=n;} });
+      epRows=XLSX.utils.sheet_to_json(wb.Sheets[best],{defval:'',raw:true});
+      epHeaders=epRows.length?Object.keys(epRows[0]):[];
+      showEPMap();
+    }catch(err){ toast('No pude leer el archivo: '+err.message); }
+  };
+  if(isCsv) reader.readAsText(file,'UTF-8'); else reader.readAsArrayBuffer(file);
+}
+function showEPMap(){
+  if(!epRows.length){ document.getElementById('epMap').innerHTML='<div class="banner">No encontré filas en el archivo.</div>'; return; }
+  const map=guessMapEP(epHeaders);
+  const opt=h=>`<option value="">— ninguna —</option>`+epHeaders.map(x=>`<option value="${esc(x)}" ${map[h]===x?'selected':''}>${esc(x)}</option>`).join('');
+  document.getElementById('epMap').innerHTML=`
+    <div class="banner">✔ Detecté <b>${epRows.length}</b> envíos. Revisá el mapeo (la llave es el N° de pedido):</div>
+    <div class="row2">${EP_MAP.map(f=>`<div class="field"><label>${f.lbl}</label><select id="epmap_${f.k}">${opt(f.k)}</select></div>`).join('')}</div>
+    <p class="small muted">Las ventas que ya tenés se actualizan; las que no existan se crean desde Envío Pack.</p>`;
+  document.getElementById('epBtn').disabled=false;
+}
+function mapEstadoEP(estado, demorado){
+  const n=norm(estado);
+  if(n.includes('entreg')) return 'entregado';
+  if(n.includes('cancel')||n.includes('devuel')||n.includes('rechaz')||n.includes('anula')) return 'cancelada';
+  if(norm(demorado)==='si'||n.includes('demor')) return 'demorado';
+  if(n.includes('distribuc')||n.includes('transit')||n.includes('camino')||n.includes('despach')||n.includes('visita')||n.includes('reparto')) return 'despachado';
+  if(n.includes('prepar')||n.includes('deposit')||n.includes('pendiente')||n.includes('colecta')||n.includes('alta')) return 'empaquetar';
+  return 'despachado';
+}
+async function doEPImport(){
+  const get=k=>document.getElementById('epmap_'+k)?.value;
+  const c={}; EP_MAP.forEach(f=>c[f.k]=get(f.k));
+  if(!c.pedido){ toast('Elegí la columna del N° de pedido'); return; }
+  let upd=0, add=0; const touched=[]; const now=new Date().toISOString();
+  for(const r of epRows){
+    const pedido=String(r[c.pedido]!=null?r[c.pedido]:'').trim(); if(!pedido) continue;
+    const estadoTxt=c.estado?String(r[c.estado]||''):'';
+    const sub=c.subestado?String(r[c.subestado]||''):'';
+    const dem=c.demorado?String(r[c.demorado]||''):'';
+    const epLabel=((estadoTxt+(sub?(' · '+sub):'')).trim())||'—';
+    const nuevo=mapEstadoEP(estadoTxt,dem);
+    const val=k=>c[k]?String(r[c[k]]||'').trim():'';
+    let v=VENTAS.find(x=>String(x.orden_ml)===pedido);
+    if(v){
+      v.estado_envio_pack=epLabel; v.estado=nuevo;
+      if(nuevo==='demorado') v.afecta_reputacion=true;
+      if(!v.comprador && c.destinatario) v.comprador=val('destinatario');
+      if(!v.publicacion && c.productos) v.publicacion=val('productos');
+      if(!v.direccion && c.direccion) v.direccion=val('direccion');
+      v.updated_at=now; touched.push(v); upd++;
+    } else {
+      const fv=c.fecha?parseFecha(r[c.fecha]):'';
+      const v2={ id:uid(), orden_ml:pedido, estado:nuevo, estado_envio_pack:epLabel,
+        comprador:val('destinatario'), publicacion:val('productos'), direccion:val('direccion'),
+        monto:c.monto?(Number(r[c.monto])||null):null, fecha_venta:fv, fecha_limite:fv,
+        tipo_envio:'Flex', unidades:1, afecta_reputacion:nuevo==='demorado', updated_at:now };
+      VENTAS.unshift(v2); touched.push(v2); add++;
+    }
+  }
+  const ok=await flushVentas(touched);
+  closeModal(); renderAll();
+  toast(`Envío Pack: ${upd} cruzadas, ${add} nuevas${ok?'':' · error de sync'}`);
+}
+
+/* ============ CONFIG / SUPABASE ============ */
+const SQL_SCHEMA = `-- Ejecutá esto en Supabase (SQL Editor) una sola vez
+create table if not exists flex_ventas (
+  id text primary key,
+  orden_ml text unique,
+  fecha_venta text, fecha_limite text,
+  comprador text, publicacion text, sku text,
+  unidades numeric default 1, monto numeric,
+  tipo_envio text, direccion text,
+  estado text default 'nueva',
+  estado_envio_pack text default '—',
+  prioridad text, afecta_reputacion boolean default false,
+  nota text, updated_at timestamptz default now()
+);
+create table if not exists flex_stock (
+  id text primary key,
+  sku text unique, producto text,
+  cantidad numeric default 0, minimo numeric default 0,
+  ubicacion text, updated_at timestamptz default now()
+);
+-- Acceso para la app (anon key). Para uso interno del equipo:
+alter table flex_ventas enable row level security;
+alter table flex_stock  enable row level security;
+create policy "equipo_ventas" on flex_ventas for all using (true) with check (true);
+create policy "equipo_stock"  on flex_stock  for all using (true) with check (true);`;
+
+function openConfig(){
+  const c=getCfg();
+  openModal(`
+    <div class="mh"><h3>⚙ Configuración</h3><button class="close" onclick="closeModal()">×</button></div>
+    <div class="mb">
+      <div class="banner">Estado actual: <b>${backend==='supabase'?'Compartido (Supabase) ✔':'Modo local (sólo esta compu)'}</b></div>
+      <p class="small muted">Para que <b>varios del equipo</b> vean y editen lo mismo, conectá un proyecto de Supabase. Sin esto, los datos quedan sólo en este navegador.</p>
+      <div class="field"><label>Supabase URL</label><input id="c_url" placeholder="https://xxxx.supabase.co" value="${esc(c.url||'')}"></div>
+      <div class="field"><label>Supabase anon key</label><input id="c_key" placeholder="eyJhbGciOi..." value="${esc(c.key||'')}"></div>
+      <div class="field"><label>Tu nombre / equipo (opcional)</label><input id="c_email" value="${esc(c.email||'')}"></div>
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px;color:var(--info)">Ver SQL para crear las tablas (1 vez)</summary>
+        <pre id="sqlBox">${esc(SQL_SCHEMA)}</pre>
+        <button class="btn gh sm" onclick='copyText(SQL_SCHEMA)'>📋 Copiar SQL</button></details>
+    </div>
+    <div class="mf">
+      <button class="btn gh" onclick="exportData()">⬇ Exportar datos (JSON)</button>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn gh" onclick="closeModal()">Cerrar</button>
+      <button class="btn y" onclick="saveConfig()">Guardar y conectar</button>
+    </div>`);
+}
+async function saveConfig(){
+  const c={ url:document.getElementById('c_url').value.trim(), key:document.getElementById('c_key').value.trim(), email:document.getElementById('c_email').value.trim() };
+  setCfg(c); closeModal();
+  await initBackend();
+  if(backend==='supabase'){
+    // primera vez: subir lo local si las tablas están vacías
+    try{
+      const {count}=await sb.from('flex_ventas').select('*',{count:'exact',head:true});
+      if((count||0)===0 && VENTAS.length){ await flushVentas(VENTAS); }
+      const sc=await sb.from('flex_stock').select('*',{count:'exact',head:true});
+      if((sc.count||0)===0 && STOCK.length){ await flushStock(STOCK); }
+      toast('Conectado a Supabase ✔');
+    }catch(e){ toast('Conectado, pero revisá el SQL: '+e.message); }
+  }
+  await loadAll();
+}
+function exportData(){
+  const blob=new Blob([JSON.stringify({ventas:VENTAS,stock:STOCK,exported:new Date().toISOString()},null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='flexops-backup-'+todayStr()+'.json'; a.click();
+}
+
+/* ============ INIT ============ */
+(async function(){
+  fillEstadoSelect();
+  await initBackend();
+  await loadAll();
+})();
+</script>
+</body>
+</html>
