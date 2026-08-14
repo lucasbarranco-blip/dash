@@ -61,6 +61,7 @@ main{max-width:1560px;margin:0 auto;padding:18px 20px 80px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:16px;overflow:hidden}
 .card > h3{margin:0;padding:13px 16px 0;font-size:14px;letter-spacing:-.01em}
 .card > h3 + .sub{margin:2px 16px 0;color:var(--muted);font-size:12px}
+.card .sub{color:var(--muted);font-size:12px}
 .card-body{padding:14px 16px}
 .grid{display:grid;gap:16px}
 .g2{grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
@@ -192,6 +193,8 @@ code.sql{display:block;white-space:pre;background:#0f1115;color:#d5e0ee;padding:
 .f-viejo{background:#fdeeea;border-color:#f3c9bd}
 .f-falta{background:var(--plane);color:var(--muted);border-style:dashed}
 .chips{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 4px}
+.dec-h{display:flex;align-items:baseline;gap:9px;margin:16px 0 2px;font-weight:650;font-size:13.5px}
+.dec-h span{font-weight:500;font-size:12px;color:var(--muted)}
 .dec{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .dec-i{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--border);border-left:4px solid var(--muted);border-radius:10px;padding:10px 13px;background:var(--surface)}
 .dec-i.d-crit{border-left-color:#d03b3b;background:#fefaf9}
@@ -1667,16 +1670,19 @@ function waterfall(box,pasos){
 /* =========================================================================
    DECISIONES · todo lo accionable, ordenado por la plata que hay en juego
    ========================================================================= */
+/* clase: "resultado" es plata que se gana o se pierde en el mes; "capital" es plata inmovilizada
+   en mercadería. No se suman entre sí ni compiten en el mismo ranking. */
 const TIPOS_DEC={
-  perdida:{n:'Vende a pérdida', ic:'🔴', c:'crit'},
-  quiebre:{n:'Quiebre de stock', ic:'📦', c:'crit'},
-  margen:{n:'Margen flaco', ic:'📉', c:'serious'},
-  exceso:{n:'Capital dormido', ic:'🧊', c:'warn'},
-  roas:{n:'Pauta ineficiente', ic:'📣', c:'serious'},
-  postventa:{n:'Postventa', ic:'↩️', c:'serious'},
-  dormida:{n:'Activa sin vender', ic:'💤', c:'warn'},
-  reponer:{n:'Reponer en Full', ic:'🚚', c:'warn'}
+  perdida:{n:'Vende a pérdida', ic:'🔴', c:'crit', cl:'resultado'},
+  quiebre:{n:'Quiebre de stock', ic:'📦', c:'crit', cl:'resultado'},
+  margen:{n:'Margen flaco', ic:'📉', c:'serious', cl:'resultado'},
+  roas:{n:'Pauta ineficiente', ic:'📣', c:'serious', cl:'resultado'},
+  postventa:{n:'Postventa', ic:'↩️', c:'serious', cl:'resultado'},
+  dormida:{n:'Activa sin vender', ic:'💤', c:'warn', cl:'resultado'},
+  reponer:{n:'Reponer en Full', ic:'🚚', c:'warn', cl:'resultado'},
+  exceso:{n:'Capital dormido', ic:'🧊', c:'warn', cl:'capital'}
 };
+const claseDe=t=>(TIPOS_DEC[t]||{}).cl||'resultado';
 function normTit(s){ return norm(String(s||'')).replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
 function decisiones(r){
   const D=[], E=economia();
@@ -1776,10 +1782,11 @@ function decisiones(r){
 }
 function panelDecisiones(D){
   const c=el('div','card');
+  const res=D.filter(d=>claseDe(d.tipo)==='resultado'), cap=D.filter(d=>claseDe(d.tipo)==='capital');
+  const totRes=sum(res,d=>d.impacto), totCap=sum(cap,d=>d.impacto);
   const porTipo=new Map(); D.forEach(d=>porTipo.set(d.tipo,(porTipo.get(d.tipo)||0)+d.impacto));
-  const total=sum(D,d=>d.impacto);
   const sel=UI.filters.decTipo||'';
-  let h=`<h3>Decisiones de hoy</h3><div class="sub">Todo lo accionable de los 7 sectores, ordenado por la plata que hay en juego · <b>${fMk(total)}</b> en total sobre ${fN(D.length)} puntos</div>`;
+  let h=`<h3>Decisiones de hoy</h3><div class="sub">Todo lo accionable de los 7 sectores. <b>${fMk(totRes)}</b> de impacto en el resultado del mes y <b>${fMk(totCap)}</b> de capital inmovilizado, sobre ${fN(D.length)} puntos.</div>`;
   h+='<div class="sub" style="margin-top:6px">Las señales de publicaciones (margen, stock, ventas) salen del último export cargado y no dependen del período; las de pauta y postventa sí respetan el período elegido.</div>';
   h+='<div class="chips">';
   h+=`<button class="chip${sel?'':' on'}" data-t="">Todo (${D.length})</button>`;
@@ -1788,12 +1795,10 @@ function panelDecisiones(D){
     h+=`<button class="chip${sel===t?' on':''}" data-t="${t}">${T.ic} ${esc(T.n)} · ${fMk(v)}</button>`;
   });
   h+='</div>';
-  const lista=(sel?D.filter(d=>d.tipo===sel):D).slice(0,40);
-  h+='<div class="dec">';
-  lista.forEach(d=>{
+  const fila=d=>{
     const T=TIPOS_DEC[d.tipo]||{n:d.tipo,ic:'•',c:'warn'};
     const link=d.mla?`<a href="https://articulo.mercadolibre.com.ar/MLA-${esc(String(d.mla))}" target="_blank" rel="noopener" class="dec-link">ver ↗</a>`:'';
-    h+=`<div class="dec-i d-${T.c}">
+    return `<div class="dec-i d-${T.c}">
       <div class="dec-m">${fMk(d.impacto)}</div>
       <div class="dec-b">
         <div class="dec-t">${T.ic} ${esc(d.titulo||'').slice(0,90)} ${link}</div>
@@ -1802,10 +1807,23 @@ function panelDecisiones(D){
       </div>
       <div class="dec-g">${esc(T.n)}</div>
     </div>`;
-  });
-  if(!lista.length) h+='<div class="empty">Nada urgente con los datos cargados.</div>';
-  h+='</div>';
-  if(D.length>lista.length) h+=`<div class="sub" style="margin-top:8px">Mostrando ${lista.length} de ${D.length}. Usá los filtros de arriba o bajá a la tabla completa.</div>`;
+  };
+  const bloque=(titulo,sub,lista,tope)=>{
+    if(!lista.length) return '';
+    let b=`<div class="dec-h">${titulo} <span>${sub}</span></div><div class="dec">`;
+    b+=lista.slice(0,tope).map(fila).join('');
+    b+='</div>';
+    if(lista.length>tope) b+=`<div class="sub" style="margin-top:6px">Mostrando ${tope} de ${lista.length} · la tabla de abajo tiene todo.</div>`;
+    return b;
+  };
+  if(sel){
+    const l=D.filter(d=>d.tipo===sel);
+    h+=bloque((TIPOS_DEC[sel]||{}).n||sel, fMk(sum(l,d=>d.impacto)), l, 40);
+  }else{
+    h+=bloque('Plata que se pierde este mes','impacto en el resultado · '+fMk(totRes),res,25);
+    h+=bloque('Plata inmovilizada en mercadería','no es pérdida, es capital quieto · '+fMk(totCap),cap,10);
+  }
+  if(!D.length) h+='<div class="empty">Nada urgente con los datos cargados.</div>';
   c.innerHTML=h;
   c.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ UI.filters.decTipo=b.dataset.t||''; render(); });
   return c;
@@ -1906,10 +1924,10 @@ function viewResumen(){
     const D=decisiones(r);
     view.appendChild(panelDecisiones(D));
     view.appendChild(dataTable({id:'res_dec',title:'Todas las decisiones',sub:'Ordenables y exportables a Excel',
-      cols:[{k:'grupo',l:'Tipo'},{k:'titulo',l:'Publicación / campaña'},{k:'categoria',l:'Categoría'},
+      cols:[{k:'grupo',l:'Tipo'},{k:'clase',l:'Clase'},{k:'titulo',l:'Publicación / campaña'},{k:'categoria',l:'Categoría'},
         {k:'impacto',l:'Plata en juego',t:'money',total:'sum'},{k:'motivo',l:'Por qué'},{k:'accion',l:'Qué hacer'},{k:'mlaL',l:'MLA'}],
-      rows:D.map(d=>({...d,grupo:(TIPOS_DEC[d.tipo]||{n:d.tipo}).n,mlaL:d.mla?'MLA'+d.mla:''})),
-      filters:[{k:'grupo',label:'Tipo'}],
+      rows:D.map(d=>({...d,grupo:(TIPOS_DEC[d.tipo]||{n:d.tipo}).n,clase:claseDe(d.tipo)==='capital'?'Capital inmovilizado':'Impacto en el resultado',mlaL:d.mla?'MLA'+d.mla:''})),
+      filters:[{k:'grupo',label:'Tipo'},{k:'clase',label:'Clase'}],
       sort:{k:'impacto',dir:'desc'},totals:true,csvName:'decisiones'}));
   }
 
