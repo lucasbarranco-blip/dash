@@ -595,19 +595,25 @@ const DATASETS = {
   comp_publicaciones:{label:'Competencia · publicaciones', sector:'negocio',key:r=>r.titulo,               desc:'Ranking de publicaciones del competidor'},
   stock:           {label:'Stock Full y Flex',         sector:'logistica', key:r=>r.mla+'|'+(r.variante||''), desc:'Inventario por publicación'},
   comercial:       {label:'Rotación, margen y promos', sector:'comercial', key:r=>r.sku||r.mla||r.producto, desc:'Costos, precios, stock y promociones'},
-  acciones:        {label:'Plan de acción por producto', sector:'atencion', key:r=>r.producto+'|'+r.detalle, desc:'Qué se detectó y qué se hizo con cada producto preguntado'}
+  acciones:        {label:'Plan de acción por producto', sector:'atencion', key:r=>r.producto+'|'+r.detalle, desc:'Qué se detectó y qué se hizo con cada producto preguntado'},
+  costos:          {label:'Costos por producto',        sector:'comercial', key:r=>r.sku||r.mla,             desc:'Costo con y sin IVA por SKU — base fija para calcular margen'},
+  full_plan:       {label:'Planificación de Full',       sector:'logistica', key:r=>r.sku||r.codigo,          desc:'Stock en Full, en camino, sugerencia de reposición y nivel según Mercado Libre'}
 };
 const SECTORES = [
   {id:'resumen',   ic:'📈', nom:'Resumen Ejecutivo', datasets:['ventas_dia','ventas_provincia','top_productos']},
   {id:'atencion',  ic:'💬', nom:'Atención al Cliente', datasets:['preguntas','postventa','acciones']},
   {id:'marketing', ic:'📣', nom:'Marketing', datasets:['pads_diario','dsp_diario','ads_diario','pads_campanas']},
   {id:'catalogo',  ic:'🏷️', nom:'Catálogo', datasets:['publicaciones','pub_ventas']},
-  {id:'comercial', ic:'💰', nom:'Comercial', datasets:['comercial']},
-  {id:'logistica', ic:'📦', nom:'Logística', datasets:['stock']},
-  {id:'negocio',   ic:'🔍', nom:'Análisis de Negocio', datasets:['comp_diario','comp_publicaciones']}
+  {id:'comercial', ic:'💰', nom:'Comercial', datasets:['comercial','costos']},
+  {id:'logistica', ic:'📦', nom:'Logística', datasets:['full_plan','stock']},
+  {id:'negocio',   ic:'🔍', nom:'Análisis de Negocio', datasets:['comp_diario','comp_publicaciones']},
+  {id:'sugerencias',ic:'🧠', nom:'Sugerencias', datasets:[], derivado:true}
 ];
 
 /* ------------------------- helpers de parseo ------------------------- */
+/* Los reportes de ML escriben la publicación de tres formas: MLA1739202819, #1739202819 y 1739202819.
+   Todos los cruces usan sólo los dígitos. */
+function mlaKey(v){ const d=String(v==null?'':v).replace(/\D/g,''); return d||String(v||'').trim(); }
 function bool(v){ const s=norm(v); return s==='si'||s==='sí'||s==='true'||s==='1'||s==='x'||s==='yes'; }
 function pctVal(v){ const n=num(v); return n>1.5? n/100 : n; }   // acepta 8,4 o 0,084
 function tiempoSeg(v){
@@ -658,7 +664,7 @@ const SNIFFERS = [
 (nm,mx)=>{
   const rows=tabular(mx,['Texto de la pregunta','Fecha','Estado'],o=>{
     const d=parseFecha(col(o,'Fecha')); if(!d) return null;
-    const pub=String(col(o,'Nro. de Publicación','Nro de Publicacion','Publicación')||'').replace(/[#\s]/g,'');
+    const pub=mlaKey(col(o,'Nro. de Publicación','Nro de Publicacion','Publicación'));
     const t=tiempoSeg(col(o,'Tiempo de respuesta'));
     return {ts:d.getTime(), fecha:iso(d), hora:d.getHours(), estado:String(col(o,'Estado')||'').trim(),
       mla:pub, titulo:String(col(o,'Título de la Publicación','Titulo')||'').trim(),
@@ -683,17 +689,27 @@ const SNIFFERS = [
     const tr=norm(col(o,'Tipo')), e=norm(est+' '+desc+' '+mot);
     let tipo=null;
     if(tr.includes('cancel')) tipo='Cancelación';
-    else if(tr.includes('devol')||tr.includes('reclam')) tipo=(e.includes('mediac')||e.includes('reclam'))?'Reclamo':'Devolución';
+    else if(tr.includes('devol')||tr.includes('reclam')) tipo='Devolución';
     else if(!tr||tr==='otro'){
       if(e.includes('cancel')) tipo='Cancelación';
-      else if(e.includes('mediac')||e.includes('reclam')) tipo='Reclamo';
-      else if(e.includes('devol')||e.includes('reintegr')) tipo='Devolución';
+      else if(e.includes('devol')||e.includes('reintegr')||e.includes('mediac')||e.includes('reclam')||e.includes('cambio')) tipo='Devolución';
     }
     if(!tipo) return null;   /* venta normal: no es un caso de postventa */
+    /* dentro de las devoluciones, ML distingue mediación (reclamo) y cambio de producto */
+    const mediacion = tipo==='Devolución' && (e.includes('mediac')||e.includes('reclam'));
+    const cambio    = tipo==='Devolución' && e.includes('cambio');
+    let etapa='';
+    if(tipo==='Devolución'){
+      if(mediacion) etapa='Mediación / reclamo';
+      else if(cambio) etapa='Cambio de producto';
+      else if(e.includes('en proceso')||e.includes('camino')||e.includes('preparacion')||e.includes('revision')) etapa='En proceso';
+      else if(e.includes('finalizada')||e.includes('revisada')) etapa='Finalizada / revisada';
+      else etapa='Otra';
+    }
     return {venta, fecha:d?iso(d):'', estado:est, descripcion:desc.trim().slice(0,90),
       comprador:String(col(o,'Comprador_clean','Comprador')||'').trim(),
       titulo:String(col(o,'Título de la publicación','Titulo')||'').trim(),
-      unidades:num(col(o,'Unidades')), mes:String(col(o,'Mes')||'').trim(), tipo,
+      unidades:num(col(o,'Unidades')), mes:String(col(o,'Mes')||'').trim(), tipo, mediacion, etapa,
       motivo:String(col(o,'Motivo_Agrupado','Motivo')||'Motivo no especificado').trim()};
   });
   return rows? [{key:'postventa',rows}] : null;
@@ -757,7 +773,7 @@ const SNIFFERS = [
 (nm,mx)=>{
   const rows=tabular(mx,['Título','Visitas','Conversión'],o=>{
     const t=String(col(o,'Título','Titulo')||'').trim(); if(!t) return null;
-    const mla=String(col(o,'MLA','Nº Publicación','# de publicación','Publicación')||'').replace(/[#\s]/g,'').trim();
+    const mla=mlaKey(col(o,'MLA','Nº Publicación','# de publicación','Publicación'));
     return {mla:mla||t.slice(0,40), titulo:t, categoria:String(col(o,'Categoría','Categoria')||'Sin categoría').trim(),
       precio:num(col(o,'Precio')), promo:bool(col(o,'Promoción','Promocion')),
       estado:String(col(o,'Estado')||'').trim(), visitas:num(col(o,'Visitas')),
@@ -770,7 +786,7 @@ const SNIFFERS = [
 (nm,mx)=>{
   const rows=tabular(mx,['Título','Unidades vendidas','Facturación'],o=>{
     const t=String(col(o,'Título','Titulo')||'').trim(); if(!t) return null;
-    const id=String(col(o,'Nº Publicación','N° Publicación','# de publicación','#','MLA')||'').replace(/[#\s]/g,'').trim();
+    const id=mlaKey(col(o,'Nº Publicación','N° Publicación','# de publicación','#','MLA'));
     return {mla:id||t.slice(0,40), titulo:t, unidades:num(col(o,'Unidades vendidas')), facturacion:num(col(o,'Facturación','Facturacion'))};
   },{scan:8});
   if(!rows) return null;
@@ -779,11 +795,33 @@ const SNIFFERS = [
                : [{key:'pub_ventas',rows}];
 },
 
+/* --- Reporte de Planificación de Full (los números vienen como texto: 1.825 = 1825) --- */
+(nm,mx)=>{
+  const rows=tabular(mx,['Unidades aptas','Unidades sugeridas','Nivel de stock'],o=>{
+    const prod=String(col(o,'Producto')||'').trim(); if(!prod) return null;
+    const pubs=String(col(o,'Publicaciones con este producto','Publicaciones')||'')
+      .split(/[,;]/).map(x=>mlaKey(x)).filter(x=>x&&x.length>6);
+    const lim=String(col(o,'Fecha límite de envío','Fecha limite')||'').trim();
+    const vr=String(col(o,'Variante')||'').trim();
+    return {sku:String(col(o,'SKU')||'').trim(), codigo:String(col(o,'Código ML','Codigo ML')||'').trim(),
+      producto:prod, variante:(vr==='N/A'||vr==='-')?'':vr,
+      mla:pubs[0]||'', mlas:pubs.join(','), publicaciones:pubs.length,
+      tamano:String(col(o,'Tamaño','Tamano')||'').trim(), volumen:numAR(col(o,'Volumen del producto')),
+      clasificacion:String(col(o,'Clasificación de producto','Clasificacion')||'').replace('-','').trim(),
+      ventas30:numAR(col(o,'Ventas brutas en')), unidades30:numAR(col(o,'Unidades vendidas en')),
+      aptas:numAR(col(o,'Unidades aptas')), camino:numAR(col(o,'Unidades en camino')),
+      minimas:numAR(col(o,'Unidades mínimas','Unidades minimas')), sugeridas:numAR(col(o,'Unidades sugeridas')),
+      limite:(lim==='-'?'':lim), nivel:String(col(o,'Nivel de stock')||'').replace('-','').trim()||'Sin dato',
+      obs:String(col(o,'Observaciones')||'').replace(/^-$/,'').trim()};
+  },{scan:14});
+  return rows? [{key:'full_plan',rows}] : null;
+},
+
 /* --- Stock (export de publicaciones de ML o plantilla) --- */
 (nm,mx)=>{
   const rows=tabular(mx,['Título','En mi depósito'],o=>{
     const t=String(col(o,'Título','Titulo','Producto')||'').trim(); if(!t) return null;
-    const mla=String(col(o,'MLA','# de publicación','Nº Publicación','Publicación','Código','SKU')||'').replace(/[#\s]/g,'').trim();
+    const mla=mlaKey(col(o,'MLA','# de publicación','Nº Publicación','Publicación','Código'))||String(col(o,'SKU')||'').trim();
     return {mla:mla||t.slice(0,40), sku:String(col(o,'SKU','Código')||'').trim(), titulo:t,
       variante:String(col(o,'Variante','Variación','Atributos')||'').trim(),
       stock_flex:num(col(o,'En mi depósito','Stock Flex','Stock propio')),
@@ -794,11 +832,28 @@ const SNIFFERS = [
   return rows? [{key:'stock',rows}] : null;
 },
 
+/* --- Costos por producto (archivo fijo GH_Productos) --- */
+(nm,mx)=>{
+  const rows=tabular(mx,['SKU','Costo'],o=>{
+    const sku=String(col(o,'SKU')||'').trim();
+    const mla=mlaKey(col(o,'MLA','Publicación','# de publicación'));
+    if(!sku&&!mla) return null;
+    const cIva=num(col(o,'Costo c/IVA','Costo con IVA','Costo cIVA'));
+    const sIva=num(col(o,'Costo s/IVA','Costo sin IVA','Costo sIVA'));
+    const iva=pctVal(col(o,'IVA%','IVA'));
+    if(!cIva&&!sIva) return null;
+    return {sku,mla,titulo:String(col(o,'Título','Titulo','Producto')||'').trim(),
+      iva:iva||0.21, costoSinIva:sIva||(cIva/(1+(iva||0.21))), costoConIva:cIva||(sIva*(1+(iva||0.21))),
+      categoria:String(col(o,'Categoría','Categoria')||'').trim()};
+  });
+  return rows? [{key:'costos',rows}] : null;
+},
+
 /* --- Comercial (plantilla) --- */
 (nm,mx)=>{
   const rows=tabular(mx,['Producto','Costo unitario','Precio de venta'],o=>{
     const p=String(col(o,'Producto','Título')||'').trim(); if(!p) return null;
-    return {sku:String(col(o,'SKU')||'').trim(), mla:String(col(o,'MLA','Publicación')||'').replace(/[#\s]/g,'').trim(),
+    return {sku:String(col(o,'SKU')||'').trim(), mla:mlaKey(col(o,'MLA','Publicación')),
       producto:p, categoria:String(col(o,'Categoría','Categoria')||'Sin categoría').trim(),
       stock:num(col(o,'Stock actual','Stock')), vendidos:num(col(o,'Unidades vendidas 30d','Unidades vendidas','Vendidos 30d')),
       costo:num(col(o,'Costo unitario','Costo')), precio:num(col(o,'Precio de venta','Precio')),
@@ -1232,6 +1287,12 @@ function killCharts(){ UI.charts.forEach(c=>{try{c.destroy()}catch(e){}}); UI.ch
 const axMoney={ticks:{callback:v=>fMk(v)},grid:{color:INK.grid,drawBorder:false},border:{display:false}};
 const axNum  ={ticks:{callback:v=>fNk(v)},grid:{color:INK.grid,drawBorder:false},border:{display:false}};
 const axCat  ={grid:{display:false},border:{color:INK.line},ticks:{maxRotation:0,autoSkipPadding:14}};
+/* eje de valores: money por defecto, o el formateador que pase el gráfico (tick) */
+function axVal(o){
+  o=o||{};
+  if(o.tick) return {ticks:{callback:v=>o.tick(v)},grid:{color:INK.grid,drawBorder:false},border:{display:false}};
+  return o.money===false? axNum : axMoney;
+}
 
 function lineChart(box,labels,series,opts){
   opts=opts||{};
@@ -1244,7 +1305,7 @@ function lineChart(box,labels,series,opts){
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:series.length>1,position:'top',align:'end'},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${(opts.fmt||fMk)(c.parsed.y)}`}}},
-      scales:{x:axCat,y:{...(opts.money===false?axNum:axMoney),beginAtZero:opts.zero!==false}}}});
+      scales:{x:axCat,y:{...axVal(opts),beginAtZero:opts.zero!==false}}}});
 }
 function barChart(box,labels,series,opts){
   opts=opts||{};
@@ -1257,8 +1318,8 @@ function barChart(box,labels,series,opts){
       plugins:{legend:{display:series.length>1,position:'top',align:'end'},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${(opts.fmt||fMk)(opts.horizontal?c.parsed.x:c.parsed.y)}`}}},
       scales: opts.horizontal
-        ? {x:{...(opts.money===false?axNum:axMoney),stacked:!!opts.stacked},y:{...axCat,stacked:!!opts.stacked,ticks:{autoSkip:false,callback:function(v){const l=this.getLabelForValue(v);return l.length>30?l.slice(0,29)+'…':l;}}}}
-        : {x:{...axCat,stacked:!!opts.stacked},y:{...(opts.money===false?axNum:axMoney),stacked:!!opts.stacked,beginAtZero:true}}}});
+        ? {x:{...axVal(opts),stacked:!!opts.stacked},y:{...axCat,stacked:!!opts.stacked,ticks:{autoSkip:false,callback:function(v){const l=this.getLabelForValue(v);return l.length>30?l.slice(0,29)+'…':l;}}}}
+        : {x:{...axCat,stacked:!!opts.stacked},y:{...axVal(opts),stacked:!!opts.stacked,beginAtZero:true}}}});
 }
 function doughnut(box,labels,data,opts){
   opts=opts||{};
@@ -1334,17 +1395,19 @@ function filterBar(dataMax,extra){
 }
 function subTabs(sectorId,tabs){
   const w=el('div','subtabs');
-  const cur=UI.sub[sectorId]||tabs[0].id;
+  let cur=UI.sub[sectorId]||tabs[0].id;
+  if(!tabs.some(t=>t.id===cur)) cur=tabs[0].id;   /* la pestaña guardada ya no existe */
   tabs.forEach(t=>{ const b=el('button',cur===t.id?'active':'',esc(t.nom));
     b.onclick=()=>{ UI.sub[sectorId]=t.id; render(); }; w.appendChild(b); });
   return {node:w,cur};
 }
 function uploadStrip(sectorId,plantilla){
-  const d=dsInfo(( SECTORES.find(s=>s.id===sectorId)||{}).datasets[0]);
   const w=el('div','page-head');
   const s=SECTORES.find(x=>x.id===sectorId)||{};
   const info=(s.datasets||[]).map(k=>{ const i=dsInfo(k); return i? `${(DATASETS[k]||{}).label}: ${fN(i.rows.length)} filas · ${fDT(i.ts)}` : null; }).filter(Boolean);
-  w.innerHTML=`<div><h1>${s.ic||''} ${esc(s.nom||'')}</h1><p>${info.length?esc(info.join('  ·  ')):'Sin datos cargados todavía'}</p></div><div class="spacer"></div>`;
+  const sub = s.derivado? 'Se calcula solo con los datos de los otros sectores'
+            : (info.length? info.join('  ·  ') : 'Sin datos cargados todavía');
+  w.innerHTML=`<div><h1>${s.ic||''} ${esc(s.nom||'')}</h1><p>${esc(sub)}</p></div><div class="spacer"></div>`;
   const btns=el('div');btns.style.display='flex';btns.style.gap='8px';btns.style.flexWrap='wrap';
   if(plantilla){ const p=el('button','btn sm','⤓ Plantilla Excel'); p.onclick=plantilla; btns.appendChild(p); }
   const b=el('button','btn accent','⬆️ Cargar Excel'); b.onclick=()=>$('#filePick').click(); btns.appendChild(b);
@@ -1388,13 +1451,15 @@ function viewResumen(){
   const ing=sum(cur,x=>x.ingresos), mar=sum(cur,x=>x.margen), uni=sum(cur,x=>x.unidades), ped=sum(cur,x=>x.pedidos);
   const pIng=sum(prev,x=>x.ingresos), pUni=sum(prev,x=>x.unidades), pPed=sum(prev,x=>x.pedidos), pMar=sum(prev,x=>x.margen);
   const dias=cur.length||1;
-  const ticket=div(ing,ped||uni);
+  const ticketU=div(ing,uni);          /* ingresos por unidad vendida (principal) */
+  const ticketC=div(ing,ped||uni);     /* ingresos por compra */
   // publicidad del período
   const ads=adsUnificado().filter(x=>inRange(x.fecha,r));
   const inv=sum(ads,x=>x.inversion), ingAds=sum(ads,x=>x.ingresos);
   // postventa
   const post=rowsOf('postventa').filter(x=>inRange(x.fecha,r));
-  const canc=post.filter(x=>x.tipo==='Cancelación').length, dev=post.filter(x=>x.tipo==='Devolución').length, rec=post.filter(x=>x.tipo==='Reclamo').length;
+  const canc=post.filter(x=>x.tipo==='Cancelación').length, dev=post.filter(x=>x.tipo==='Devolución').length,
+        rec=post.filter(x=>x.mediacion).length;   /* los reclamos son un subconjunto de las devoluciones, igual que en el Excel */
   const preg=rowsOf('preguntas').filter(x=>inRange(x.fecha,r));
 
   if(tabs.cur==='pan'){
@@ -1403,10 +1468,11 @@ function viewResumen(){
       mar>0?{l:'Margen ML',ic:'📊',v:fMk(mar),s:`${fP(div(mar,ing))} sobre ingresos`,d:deltaCov(mar,pMar,cur,prev,x=>x.margen)}:null,
       {l:'Unidades',ic:'📦',v:fN(uni),s:`${fN(div(uni,dias))} por día`,d:delta(uni,pUni)},
       ped>0?{l:'Pedidos',ic:'🧾',v:fN(ped),s:`${nf2.format(div(uni,ped))} unidades por pedido`,d:delta(ped,pPed)}:null,
-      {l:'Ticket promedio',ic:'🎫',v:fM(ticket),s:'ingresos / pedido',d:delta(ticket,div(pIng,pPed||pUni))},
+      {l:'Ticket promedio',ic:'🎫',v:fM(ticketU),s:'ingresos ÷ unidades vendidas',d:delta(ticketU,div(pIng,pUni))},
+      ped>0?{l:'Ticket por compra',ic:'🛒',v:fM(ticketC),s:'ingresos ÷ pedidos',d:delta(ticketC,div(pIng,pPed))}:null,
       inv>0?{l:'Inversión en pauta',ic:'📣',v:fMk(inv),s:`${fP(div(inv,ing))} de los ingresos`,inv:true}:null,
       inv>0?{l:'ROAS publicidad',ic:'🎯',v:fX(div(ingAds,inv)),s:`${fMk(ingAds)} atribuidos`}:null,
-      post.length?{l:'Casos postventa',ic:'⚠️',v:fN(post.length),s:`${fN(canc)} cancel. · ${fN(dev)} devol. · ${fN(rec)} reclamos`,inv:true}:null,
+      post.length?{l:'Casos postventa',ic:'⚠️',v:fN(post.length),s:`${fN(canc)} cancel. · ${fN(dev)} devol. (${fN(rec)} con reclamo)`,inv:true}:null,
       post.length&&ped?{l:'Tasa de devolución',ic:'↩️',v:fP(div(dev,ped)),s:'devoluciones / pedidos',inv:true}:null,
       preg.length?{l:'Preguntas',ic:'💬',v:fN(preg.length),s:`${fP(div(preg.filter(p=>p.compra).length,preg.length))} terminan en venta`}:null
     ]));
@@ -1450,25 +1516,28 @@ function viewResumen(){
         {k:'mes',l:'Mes'},{k:'dias',l:'Días',t:'num'},{k:'ingresos',l:'Ingresos',t:'money',total:'sum'},
         {k:'margen',l:'Margen ML',t:'money',total:'sum'},{k:'mpct',l:'% Margen',t:'pct'},
         {k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'pedidos',l:'Pedidos',t:'num',total:'sum'},
-        {k:'ticket',l:'Ticket',t:'money'},{k:'ingdia',l:'Ingresos/día',t:'money'}
+        {k:'ticket',l:'Ticket x unidad',t:'money'},{k:'ticketC',l:'Ticket x compra',t:'money'},{k:'ingdia',l:'Ingresos/día',t:'money'}
       ],rows:meses.map(m=>({mes:MESN[+m._k.slice(5)-1]+' '+m._k.slice(0,4),dias:m._n,ingresos:m.ingresos,margen:m.margen,
-        mpct:div(m.margen,m.ingresos),unidades:m.unidades,pedidos:m.pedidos,ticket:div(m.ingresos,m.pedidos||m.unidades),ingdia:div(m.ingresos,m._n)})),
+        mpct:div(m.margen,m.ingresos),unidades:m.unidades,pedidos:m.pedidos,ticket:div(m.ingresos,m.unidades),
+        ticketC:div(m.ingresos,m.pedidos||m.unidades),ingdia:div(m.ingresos,m._n)})),
         sort:{k:'mes',dir:'asc'},search:false,totals:true,csvName:'resumen_mensual'}));
     }
     if(V.some(x=>x.pedidos>x.unidades)) view.appendChild(el('div','note','ℹ️ En el reporte de ML las columnas vienen cruzadas (“Ventas” trae unidades y “Unidades vendidas” trae pedidos). La app lo interpreta así: <b>Unidades</b> = columna Ventas, <b>Pedidos</b> = columna Unidades vendidas.'));
   }
 
   if(tabs.cur==='evo'){
-    const rows=cur.map(x=>({...x,mpct:div(x.margen,x.ingresos),ticket:div(x.ingresos,x.pedidos||x.unidades),
+    const rows=cur.map(x=>({...x,mpct:div(x.margen,x.ingresos),ticket:div(x.ingresos,x.unidades),ticketC:div(x.ingresos,x.pedidos||x.unidades),
       dia:DIAS[isoToDate(x.fecha).getDay()]}));
-    const c1=chartBox('Ticket promedio por día');
+    const c1=chartBox('Ticket promedio por día','Ingresos ÷ unidades vendidas, y también por compra');
     view.appendChild(c1.card);
-    setTimeout(()=>lineChart(c1,rows.map(x=>fDate(x.fecha)),[{label:'Ticket',data:rows.map(x=>x.ticket),color:PAL[3]}]),0);
+    setTimeout(()=>lineChart(c1,rows.map(x=>fDate(x.fecha)),[
+      {label:'Por unidad',data:rows.map(x=>x.ticket),color:PAL[3]},
+      {label:'Por compra',data:rows.map(x=>x.ticketC),color:PAL[0]}]),0);
     view.appendChild(dataTable({id:'res_dia',title:'Ventas por día',sub:'Ordená por cualquier columna haciendo clic en el encabezado',
       cols:[{k:'fecha',l:'Fecha',t:'date'},{k:'dia',l:'Día'},{k:'ingresos',l:'Ingresos',t:'money',total:'sum'},
         {k:'margen',l:'Margen ML',t:'money',total:'sum'},{k:'mpct',l:'% Margen',t:'pct',total:'avg'},
         {k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'pedidos',l:'Pedidos',t:'num',total:'sum'},
-        {k:'ticket',l:'Ticket',t:'money',total:'avg'}],
+        {k:'ticket',l:'Ticket x unidad',t:'money',total:'avg'},{k:'ticketC',l:'Ticket x compra',t:'money',total:'avg'}],
       rows,sort:{k:'fecha',dir:'desc'},totals:true,searchKeys:['fecha','dia'],csvName:'ventas_por_dia'}));
   }
 
@@ -1520,7 +1589,7 @@ function viewResumen(){
     const orden=[1,2,3,4,5,6,0];
     const rows=orden.map(d=>{ const o=dow.get(d)||{ingresos:0,unidades:0,pedidos:0,_n:0};
       return {dia:DIAS[d],dias:o._n,ingresos:o.ingresos,unidades:o.unidades,pedidos:o.pedidos,
-        prom:div(o.ingresos,o._n),promU:div(o.unidades,o._n),ticket:div(o.ingresos,o.pedidos||o.unidades)}; });
+        prom:div(o.ingresos,o._n),promU:div(o.unidades,o._n),ticket:div(o.ingresos,o.unidades)}; });
     const c=chartBox('Ingresos promedio por día de la semana','Sirve para planificar pauta y stock');
     view.appendChild(c.card);
     setTimeout(()=>barChart(c,rows.map(x=>x.dia),[{label:'Ingresos promedio',data:rows.map(x=>x.prom),color:PAL[0]}]),0);
@@ -1529,7 +1598,7 @@ function viewResumen(){
     setTimeout(()=>barChart(c2,rows.map(x=>x.dia),[{label:'Unidades promedio',data:rows.map(x=>x.promU),color:PAL[1]}],{money:false,fmt:fN}),0);
     view.appendChild(dataTable({id:'res_sem',title:'Detalle por día de la semana',search:false,
       cols:[{k:'dia',l:'Día'},{k:'dias',l:'Cant. de días',t:'num'},{k:'ingresos',l:'Ingresos',t:'money',total:'sum'},
-        {k:'prom',l:'Promedio/día',t:'money'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'promU',l:'Unid. prom.',t:'num'},{k:'ticket',l:'Ticket',t:'money'}],
+        {k:'prom',l:'Promedio/día',t:'money'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'promU',l:'Unid. prom.',t:'num'},{k:'ticket',l:'Ticket x unidad',t:'money'}],
       rows,sort:{k:'ingresos',dir:'desc'},totals:true,csvName:'por_dia_semana'}));
   }
   return view;
@@ -1537,19 +1606,57 @@ function viewResumen(){
 /* =========================================================================
    SECTOR 2 · ATENCIÓN AL CLIENTE
    ========================================================================= */
+function rangoDatos(rows,campo){
+  const f=rows.map(x=>campo?x[campo]:x.fecha).filter(Boolean).sort();
+  return f.length? {min:f[0],max:f[f.length-1]} : null;
+}
+/* Aviso claro cuando el período elegido cae fuera de lo que hay cargado */
+function avisoPeriodo(nombre,todas,enPeriodo,r){
+  const rg=rangoDatos(todas);
+  const w=el('div','card');
+  w.innerHTML=`<div class="empty"><div class="big">📭</div>
+    <h4>No hay ${esc(nombre)} entre el ${fDateL(r.desde)} y el ${fDateL(r.hasta)}</h4>
+    <p>${rg? `La base cargada va del <b>${fDateL(rg.min)}</b> al <b>${fDateL(rg.max)}</b> (${fN(todas.length)} registros).
+        Si necesitás un período posterior, cargá el Excel actualizado con esas filas.`
+       : 'Todavía no hay datos cargados para esta sección.'}</p></div>`;
+  const b=el('div','card-body'); b.style.textAlign='center'; b.style.paddingTop='0';
+  if(rg){
+    const btn=el('button','btn','Ver todo el período cargado');
+    btn.onclick=()=>{ UI.period={preset:'custom',desde:rg.min,hasta:rg.max}; render(); };
+    b.appendChild(btn);
+  }
+  const btn2=el('button','btn accent','⬆️ Cargar Excel'); btn2.onclick=()=>$('#filePick').click();
+  btn2.style.marginLeft='8px'; b.appendChild(btn2);
+  w.appendChild(b);
+  return w;
+}
+function marcarAccion(fila,hecho){
+  const rows=rowsOf('acciones');
+  const clave=(DATASETS.acciones.key)(fila);
+  const t=rows.find(x=>(DATASETS.acciones.key)(x)===clave);
+  if(!t) return;
+  t.hecho=!!hecho; t.hechoPor=hecho?(DB.meta.user||'—'):''; t.hechoTs=hecho?Date.now():0;
+  DB.datasets.acciones.ts=Date.now();
+  saveLocal();
+  if(SB.on) push('acciones').catch(e=>toast('No se pudo compartir el cambio: '+e.message,true));
+}
+
 function viewAtencion(){
-  const Q=rowsOf('preguntas'), C=rowsOf('postventa');
+  const Q=rowsOf('preguntas'), C=rowsOf('postventa'), AC=rowsOf('acciones');
   const view=el('div');
   view.appendChild(uploadStrip('atencion'));
-  if(!Q.length&&!C.length){ view.appendChild(emptyState('atencion','Cargá <b>Resultados ML.xlsx</b>. Uso las hojas “Base de preguntas” y “Base de Cancelaciones + Reclamos + Devoluciones”.')); return view; }
+  if(!Q.length&&!C.length&&!AC.length){ view.appendChild(emptyState('atencion','Cargá <b>Resultados ML.xlsx</b>. Uso las hojas “Base de preguntas” y “Base de Cancelaciones + Reclamos + Devoluciones”.')); return view; }
 
   const dMax=maxDate(Q)||maxDate(C);
   const r=currentRange(dMax), pr=prevRange(r);
-  const AC=rowsOf('acciones');
   const tabs=subTabs('atencion',[{id:'preg',nom:'Preguntas'},{id:'hora',nom:'Horarios y respuesta'},{id:'post',nom:'Postventa'},
     ...(AC.length?[{id:'acc',nom:'Plan de acción'}]:[]),{id:'det',nom:'Detalle'}]);
   view.appendChild(filterBar(dMax));
   view.appendChild(tabs.node);
+
+  const rgQ=rangoDatos(Q), rgC=rangoDatos(C);
+  if(rgQ||rgC) view.appendChild(el('div','note info',
+    `Datos cargados: ${rgQ?`<b>preguntas</b> del ${fDateL(rgQ.min)} al ${fDateL(rgQ.max)}`:'sin preguntas'} · ${rgC?`<b>postventa</b> del ${fDateL(rgC.min)} al ${fDateL(rgC.max)}`:'sin postventa'}. El filtro de período sólo puede mostrar lo que esté dentro de esos rangos.`));
 
   const q=Q.filter(x=>inRange(x.fecha,r)), qPrev=Q.filter(x=>inRange(x.fecha,pr));
   const c=C.filter(x=>inRange(x.fecha,r)), cPrev=C.filter(x=>inRange(x.fecha,pr));
@@ -1557,7 +1664,7 @@ function viewAtencion(){
   const pedidos=sum(ventas,x=>x.pedidos)||sum(ventas,x=>x.unidades);
 
   if(tabs.cur==='preg'){
-    if(!q.length){ view.appendChild(card(null,null,'<div class="empty">No hay preguntas en el período elegido.</div>')); return view; }
+    if(!q.length){ view.appendChild(avisoPeriodo('preguntas',Q,q,r)); return view; }
     const conv=q.filter(x=>x.compra).length;
     const sinResp=q.filter(x=>norm(x.estado).includes('sin')||norm(x.estado).includes('pendiente')).length;
     const tiempos=q.map(x=>x.seg).filter(x=>x!=null&&x>0);
@@ -1582,7 +1689,6 @@ function viewAtencion(){
       barChart(c2,porCat.map(x=>x[0].slice(0,34)),[{label:'Preguntas',data:porCat.map(x=>x[1]),color:PAL[4]}],{horizontal:true,money:false,fmt:fN,thick:16});
     },0);
 
-    // conversión por categoría
     const cats=Array.from(groupBy(q,x=>x.categoria||'Sin clasificar')).map(([k,v])=>({
       categoria:k,preguntas:v.length,ventas:v.filter(x=>x.compra).length,conv:div(v.filter(x=>x.compra).length,v.length),
       seg:div(sum(v.map(x=>x.seg||0)),v.filter(x=>x.seg).length||1),pubs:new Set(v.map(x=>x.mla)).size
@@ -1594,7 +1700,7 @@ function viewAtencion(){
       rows:cats,sort:{k:'preguntas',dir:'desc'},totals:true,csvName:'preguntas_por_categoria'}));
 
     const pubs=Array.from(groupBy(q,x=>x.titulo||x.mla)).map(([k,v])=>({
-      titulo:k,mla:v[0].mla,preguntas:v.length,ventas:v.filter(x=>x.compra).length,conv:div(v.filter(x=>x.compra).length,v.length),
+      titulo:k,mla:v[0].mla?'MLA'+v[0].mla:'',preguntas:v.length,ventas:v.filter(x=>x.compra).length,conv:div(v.filter(x=>x.compra).length,v.length),
       cat:topN(new Map(Array.from(groupBy(v,x=>x.categoria)).map(([a,b])=>[a,b.length])),1).map(x=>x[0])[0]||''
     })).sort((a,b)=>b.preguntas-a.preguntas);
     view.appendChild(dataTable({id:'at_pub',title:'Publicaciones más preguntadas',
@@ -1613,7 +1719,7 @@ function viewAtencion(){
   }
 
   if(tabs.cur==='hora'){
-    if(!q.length){ view.appendChild(card(null,null,'<div class="empty">Sin preguntas en el período.</div>')); return view; }
+    if(!q.length){ view.appendChild(avisoPeriodo('preguntas',Q,q,r)); return view; }
     const horas=Array.from({length:24},(_,h)=>({h,n:q.filter(x=>x.hora===h).length,v:q.filter(x=>x.hora===h&&x.compra).length}));
     const dow=Array.from({length:7},(_,d)=>({d,n:q.filter(x=>isoToDate(x.fecha).getDay()===d).length}));
     const c1=chartBox('Preguntas por hora del día','Para cubrir los turnos donde más consultan');
@@ -1634,58 +1740,96 @@ function viewAtencion(){
   }
 
   if(tabs.cur==='post'){
-    if(!c.length){ view.appendChild(card(null,null,'<div class="empty">No hay casos de postventa en el período elegido.</div>')); return view; }
-    const canc=c.filter(x=>x.tipo==='Cancelación'), dev=c.filter(x=>x.tipo==='Devolución'), rec=c.filter(x=>x.tipo==='Reclamo');
+    if(!c.length){ view.appendChild(avisoPeriodo('casos de postventa',C,c,r)); return view; }
+    /* Mismo criterio que tu Excel: Devoluciones incluye las mediaciones y los cambios;
+       Reclamos es el subconjunto que terminó en mediación. */
+    const canc=c.filter(x=>x.tipo==='Cancelación');
+    const dev=c.filter(x=>x.tipo==='Devolución');
+    const rec=dev.filter(x=>x.mediacion);
+    const cam=dev.filter(x=>x.etapa==='Cambio de producto');
     const dias=new Set(c.map(x=>x.fecha)).size||1;
     view.appendChild(kpiRow([
       {l:'Casos totales',ic:'⚠️',v:fN(c.length),s:`${nf1.format(div(c.length,dias))} por día`,d:delta(c.length,cPrev.length),inv:true,hl:true},
       {l:'Cancelaciones',ic:'🚫',v:fN(canc.length),s:pedidos?fP(div(canc.length,pedidos))+' de los pedidos':'',inv:true},
-      {l:'Devoluciones',ic:'↩️',v:fN(dev.length),s:pedidos?fP(div(dev.length,pedidos))+' de los pedidos':'',inv:true},
+      {l:'Devoluciones',ic:'↩️',v:fN(dev.length),s:`incluye ${fN(rec.length)} con reclamo y ${fN(cam.length)} cambios`,inv:true},
       {l:'Reclamos (mediación)',ic:'⚖️',v:fN(rec.length),s:pedidos?fP(div(rec.length,pedidos))+' de los pedidos':'',inv:true},
       {l:'Unidades afectadas',ic:'📦',v:fN(sum(c,x=>x.unidades)),s:'suma de unidades de los casos',inv:true},
+      pedidos?{l:'Tasa de devolución',ic:'📉',v:fP(div(dev.length,pedidos)),s:'devoluciones / pedidos del período',inv:true}:null,
       {l:'Productos involucrados',ic:'🏷️',v:fN(new Set(c.map(x=>x.titulo).filter(Boolean)).size)}
     ]));
+    view.appendChild(el('div','note info','Los números siguen el mismo criterio que tu Excel de resultados: <b>Devoluciones</b> incluye las que terminaron en mediación y los cambios de producto; <b>Reclamos</b> es ese subconjunto en mediación. Por eso reclamos no se suma aparte al total.'));
+
     const g=el('div','grid g2');
-    const c1=chartBox('Casos por día','Evolución de cancelaciones, devoluciones y reclamos');
-    const c2=chartBox('Motivos','Agrupados · top 10');
+    const c1=chartBox('Casos por día','Cancelaciones y devoluciones');
+    const c2=chartBox('Motivos de cancelación','Lo que informa el comprador · top 10');
     g.appendChild(c1.card); g.appendChild(c2.card); view.appendChild(g);
     const fechas=Array.from(new Set(c.map(x=>x.fecha).filter(Boolean))).sort();
-    const serie=t=>fechas.map(f=>c.filter(x=>x.fecha===f&&x.tipo===t).length);
-    const motivos=topN(new Map(Array.from(groupBy(c,x=>x.motivo||'Sin motivo')).map(([k,v])=>[k,v.length])),10);
+    const motCanc=topN(new Map(Array.from(groupBy(canc,x=>x.motivo||'Motivo no especificado')).map(([k,v])=>[k,v.length])),10);
     setTimeout(()=>{
-      barChart(c1,fechas.map(fDate),[{label:'Cancelaciones',data:serie('Cancelación'),color:PAL[7]},
-        {label:'Devoluciones',data:serie('Devolución'),color:PAL[1]},{label:'Reclamos',data:serie('Reclamo'),color:PAL[3]}],{stacked:true,money:false,fmt:fN});
-      barChart(c2,motivos.map(x=>x[0].slice(0,34)),[{label:'Casos',data:motivos.map(x=>x[1]),color:PAL[7]}],{horizontal:true,money:false,fmt:fN,thick:16});
+      barChart(c1,fechas.map(fDate),[{label:'Cancelaciones',data:fechas.map(f=>canc.filter(x=>x.fecha===f).length),color:PAL[7]},
+        {label:'Devoluciones',data:fechas.map(f=>dev.filter(x=>x.fecha===f).length),color:PAL[1]}],{stacked:true,money:false,fmt:fN});
+      barChart(c2,motCanc.map(x=>x[0].slice(0,34)),[{label:'Cancelaciones',data:motCanc.map(x=>x[1]),color:PAL[7]}],{horizontal:true,money:false,fmt:fN,thick:16});
     },0);
+
+    const etapas=topN(new Map(Array.from(groupBy(dev,x=>x.etapa||'Otra')).map(([k,v])=>[k,v.length])),8);
+    const c3=chartBox('En qué terminaron las devoluciones','Mercado Libre no informa el motivo de la devolución, sí el desenlace de cada caso');
+    view.appendChild(c3.card);
+    setTimeout(()=>barChart(c3,etapas.map(x=>x[0]),[{label:'Devoluciones',data:etapas.map(x=>x[1]),
+      colors:etapas.map(x=>/mediac|reclamo/i.test(x[0])?ST.crit:/proceso/i.test(x[0])?ST.warn:/cambio/i.test(x[0])?ST.serious:PAL[1])}],
+      {horizontal:true,money:false,fmt:fN,thick:20}),0);
+
     const prods=Array.from(groupBy(c.filter(x=>x.titulo),x=>x.titulo)).map(([k,v])=>({
       producto:k,total:v.length,canc:v.filter(x=>x.tipo==='Cancelación').length,dev:v.filter(x=>x.tipo==='Devolución').length,
-      rec:v.filter(x=>x.tipo==='Reclamo').length,unidades:sum(v,x=>x.unidades),
-      motivo:topN(new Map(Array.from(groupBy(v,x=>x.motivo)).map(([a,b])=>[a,b.length])),1).map(x=>x[0])[0]||''
+      rec:v.filter(x=>x.mediacion).length,unidades:sum(v,x=>x.unidades),
+      motivo:topN(new Map(Array.from(groupBy(v,x=>x.tipo==='Cancelación'?x.motivo:(x.etapa||'Devolución'))).map(([a,b])=>[a,b.length])),1).map(x=>x[0])[0]||''
     })).sort((a,b)=>b.total-a.total);
     view.appendChild(dataTable({id:'at_post_prod',title:'Productos con más casos',sub:'Si un producto concentra devoluciones, revisar ficha, medidas o calidad',
       cols:[{k:'producto',l:'Producto'},{k:'total',l:'Casos',t:'num',total:'sum'},{k:'canc',l:'Cancel.',t:'num',total:'sum'},
-        {k:'dev',l:'Devol.',t:'num',total:'sum'},{k:'rec',l:'Reclamos',t:'num',total:'sum'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'motivo',l:'Motivo principal'}],
+        {k:'dev',l:'Devol.',t:'num',total:'sum'},{k:'rec',l:'Con reclamo',t:'num',total:'sum'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'motivo',l:'Motivo / desenlace principal'}],
       rows:prods,sort:{k:'total',dir:'desc'},totals:true,csvName:'postventa_por_producto'}));
+
+    view.appendChild(dataTable({id:'at_post_mot',title:'Motivos y desenlaces',search:false,
+      cols:[{k:'tipo',l:'Tipo'},{k:'motivo',l:'Motivo / desenlace'},{k:'casos',l:'Casos',t:'num',total:'sum'},{k:'share',l:'% del tipo',t:'pct'},{k:'unidades',l:'Unidades',t:'num',total:'sum'}],
+      rows:[...Array.from(groupBy(canc,x=>x.motivo||'Motivo no especificado')).map(([k,v])=>({tipo:'Cancelación',motivo:k,casos:v.length,share:div(v.length,canc.length),unidades:sum(v,x=>x.unidades)})),
+            ...Array.from(groupBy(dev,x=>x.etapa||'Otra')).map(([k,v])=>({tipo:'Devolución',motivo:k,casos:v.length,share:div(v.length,dev.length),unidades:sum(v,x=>x.unidades)}))],
+      sort:{k:'casos',dir:'desc'},totals:true,csvName:'motivos_postventa'}));
+
     const al=[];
-    if(pedidos&&div(dev.length,pedidos)>0.02) al.push({lvl:'crit',t:'Tasa de devolución en '+fP(div(dev.length,pedidos)),d:'Por encima del 2% conviene revisar los productos del ranking de abajo: suele ser un problema de expectativa (medidas/colores) más que de calidad.'});
-    prods.slice(0,3).forEach(p=>{ if(p.dev>=8) al.push({lvl:'warn',t:`${p.producto.slice(0,60)} acumula ${p.dev} devoluciones`,d:`Motivo más frecuente: ${esc(p.motivo||'sin especificar')}. Revisar la publicación y las fotos.`}); });
-    if(rec.length&&div(rec.length,c.length)>0.1) al.push({lvl:'warn',t:'Los reclamos son el '+fP(div(rec.length,c.length))+' de los casos',d:'Las mediaciones impactan directo en la reputación. Priorizar respuesta en el día.'});
+    if(pedidos&&div(dev.length,pedidos)>0.02) al.push({lvl:'crit',t:'Tasa de devolución en '+fP(div(dev.length,pedidos)),d:'Por encima del 2% conviene revisar los productos del ranking de arriba: suele ser un problema de expectativa (medidas/colores) más que de calidad.'});
+    prods.slice(0,3).forEach(p=>{ if(p.dev>=8) al.push({lvl:'warn',t:`${p.producto.slice(0,60)} acumula ${p.dev} devoluciones`,d:`Desenlace más frecuente: ${esc(p.motivo||'sin especificar')}. Revisar la publicación y las fotos.`}); });
+    if(rec.length&&div(rec.length,dev.length)>0.15) al.push({lvl:'warn',t:'El '+fP(div(rec.length,dev.length))+' de las devoluciones terminó en mediación',d:'Las mediaciones impactan directo en la reputación. Priorizar respuesta en el día.'});
+    const motTop=motCanc[0];
+    if(motTop&&motTop[1]>=canc.length*0.35) al.push({lvl:'warn',t:`La mayoría de las cancelaciones son por “${motTop[0]}” (${motTop[1]} casos)`,d:'Si es arrepentimiento, suele mejorar con fotos y medidas más claras; si es demora, revisar el tiempo de despacho.'});
     view.appendChild(card('Alertas',null,alertBox(al)));
   }
 
   if(tabs.cur==='acc'){
     const conAcc=AC.filter(x=>x.accion||x.detalle);
+    const hechas=AC.filter(x=>x.hecho);
     view.appendChild(kpiRow([
       {l:'Productos analizados',ic:'🔎',v:fN(AC.length),hl:true},
-      {l:'Con acción definida',ic:'✅',v:fN(conAcc.length),s:fP(div(conAcc.length,AC.length))+' del total'},
-      {l:'Preguntas cubiertas',ic:'💬',v:fN(sum(conAcc,x=>x.preguntas)),s:'sobre '+fN(sum(AC,x=>x.preguntas))+' del ranking'},
-      {l:'Sin acción y con volumen',ic:'⏳',v:fN(AC.filter(x=>!x.accion&&x.preguntas>=4).length),s:'4 o más preguntas sin resolver',inv:true}
+      {l:'Con acción definida',ic:'📝',v:fN(conAcc.length),s:fP(div(conAcc.length,AC.length))+' del total'},
+      {l:'Realizadas',ic:'✅',v:fN(hechas.length),s:conAcc.length?fP(div(hechas.length,conAcc.length))+' de las definidas':''},
+      {l:'Pendientes con volumen',ic:'⏳',v:fN(AC.filter(x=>!x.hecho&&x.preguntas>=4).length),s:'4 o más preguntas sin resolver',inv:true}
     ]));
-    view.appendChild(dataTable({id:'at_acc',title:'Plan de acción por producto',sub:'Lo que detectó el equipo y qué se hizo con cada caso',
-      cols:[{k:'producto',l:'Producto'},{k:'preguntas',l:'Preguntas',t:'num',total:'sum'},
+    view.appendChild(el('div','note','Tildá la casilla cuando la acción esté hecha: queda guardada con tu nombre y el resto del equipo la ve al sincronizar.'));
+    const t=dataTable({id:'at_acc',title:'Plan de acción por producto',sub:'Lo que detectó el equipo, qué se hizo y qué falta',
+      filters:[{k:'estadoL',label:'Estado',options:['Realizado','Pendiente']}],
+      cols:[
+        {k:'chk',l:'Hecho',render:r=>`<input type="checkbox" class="acc-chk" data-k="${esc((DATASETS.acciones.key)(r))}" ${r.hecho?'checked':''} style="width:16px;height:16px;cursor:pointer">`},
+        {k:'producto',l:'Producto'},{k:'preguntas',l:'Preguntas',t:'num',total:'sum'},
         {k:'detalle',l:'Qué preguntan',render:r=>`<span title="${esc(r.detalle)}">${esc(r.detalle||'—')}</span>`},
-        {k:'accion',l:'Acción tomada',render:r=>r.accion?`<span title="${esc(r.accion)}">${esc(r.accion)}</span>`:'<span class="pill p-warn">Pendiente</span>'}],
-      rows:AC,sort:{k:'preguntas',dir:'desc'},totals:true,searchKeys:['producto','detalle','accion'],csvName:'plan_de_accion'}));
+        {k:'accion',l:'Acción tomada',render:r=>r.accion?`<span title="${esc(r.accion)}">${esc(r.accion)}</span>`:'<span class="pill p-warn">Sin definir</span>'},
+        {k:'estadoL',l:'Estado',t:'pill',render:r=>r.hecho?`<span class="pill p-good">Realizado${r.hechoPor?' · '+esc(r.hechoPor):''}</span>`:'<span class="pill p-neutral">Pendiente</span>'},
+        {k:'hechoTs',l:'Fecha',t:'num',render:r=>r.hechoTs?fDT(r.hechoTs):'—'}],
+      rows:AC.map(x=>({...x,estadoL:x.hecho?'Realizado':'Pendiente'})),
+      sort:{k:'preguntas',dir:'desc'},totals:true,searchKeys:['producto','detalle','accion'],csvName:'plan_de_accion'});
+    t.addEventListener('change',e=>{
+      const chk=e.target.closest('.acc-chk'); if(!chk) return;
+      const fila=AC.find(x=>(DATASETS.acciones.key)(x)===chk.dataset.k);
+      if(fila){ marcarAccion(fila,chk.checked); toast(chk.checked?'Marcado como realizado':'Marcado como pendiente'); render(); }
+    });
+    view.appendChild(t);
   }
 
   if(tabs.cur==='det'){
@@ -1698,17 +1842,22 @@ function viewAtencion(){
         {k:'titulo',l:'Publicación'},{k:'usuario',l:'Cliente'},{k:'pregunta',l:'Pregunta'},{k:'respuesta',l:'Respuesta'},
         {k:'seg',l:'Tiempo resp.',t:'num',render:r=>fSeg(r.seg)},{k:'categoria',l:'Categoría'},
         {k:'compraL',l:'Venta',t:'pill',render:r=>r.compra?'<span class="pill p-good">Sí</span>':'<span class="pill p-neutral">No</span>'}],
-      rows:q.map(x=>({...x,compraL:x.compra?'Sí':'No'})),sort:{k:'fecha',dir:'desc'},
-      searchKeys:['titulo','usuario','pregunta','respuesta','categoria'],csvName:'preguntas_detalle'}));
+      rows:q.length?q.map(x=>({...x,compraL:x.compra?'Sí':'No'})):Q.map(x=>({...x,compraL:x.compra?'Sí':'No'})),
+      sort:{k:'fecha',dir:'desc'},searchKeys:['titulo','usuario','pregunta','respuesta','categoria'],
+      note:q.length?'':'Sin datos en el período elegido: se muestra todo lo cargado',csvName:'preguntas_detalle'}));
     if(C.length) view.appendChild(dataTable({id:'at_c',title:'Postventa · detalle completo',
       searchPlaceholder:'Buscar por venta, cliente o producto…',
-      filters:[{k:'tipo',label:'Tipo',options:['Cancelación','Devolución','Reclamo','Otro']},
+      filters:[{k:'tipo',label:'Tipo',options:['Cancelación','Devolución']},
+               {k:'etapaL',label:'Desenlace',options:Array.from(new Set(C.map(x=>x.etapa).filter(Boolean))).sort()},
                {k:'motivo',label:'Motivo',options:Array.from(new Set(C.map(x=>x.motivo))).filter(Boolean).sort()}],
       cols:[{k:'fecha',l:'Fecha',t:'date'},{k:'venta',l:'# de venta'},
-        {k:'tipo',l:'Tipo',t:'pill',render:r=>`<span class="pill ${r.tipo==='Cancelación'?'p-crit':r.tipo==='Devolución'?'p-warn':r.tipo==='Reclamo'?'p-info':'p-neutral'}">${esc(r.tipo)}</span>`},
+        {k:'tipo',l:'Tipo',t:'pill',render:r=>`<span class="pill ${r.tipo==='Cancelación'?'p-crit':'p-warn'}">${esc(r.tipo)}</span>`},
+        {k:'etapaL',l:'Desenlace',t:'pill',render:r=>r.etapa?`<span class="pill ${r.mediacion?'p-crit':'p-neutral'}">${esc(r.etapa)}</span>`:'—'},
         {k:'titulo',l:'Producto'},{k:'unidades',l:'Unid.',t:'num',total:'sum'},{k:'comprador',l:'Cliente'},
         {k:'motivo',l:'Motivo'},{k:'estado',l:'Estado ML'}],
-      rows:c,sort:{k:'fecha',dir:'desc'},searchKeys:['venta','titulo','comprador','motivo','estado'],totals:true,csvName:'postventa_detalle'}));
+      rows:(c.length?c:C).map(x=>({...x,etapaL:x.etapa||''})),sort:{k:'fecha',dir:'desc'},
+      searchKeys:['venta','titulo','comprador','motivo','estado'],totals:true,
+      note:c.length?'':'Sin datos en el período elegido: se muestra todo lo cargado',csvName:'postventa_detalle'}));
   }
   return view;
 }
@@ -1780,7 +1929,7 @@ function viewMarketing(){
     setTimeout(()=>{
       lineChart(c1,fechas.map(fDate),[{label:'Ingresos atribuidos',data:ingD,color:PAL[2],fill:true}]);
       lineChart(c1b,fechas.map(fDate),[{label:'Inversión',data:invD,color:PAL[1],fill:true}]);
-      lineChart(c2,fechas.map(fDate),[{label:'ROAS',data:fechas.map((f,i)=>div(ingD[i],invD[i])),color:PAL[0]}],{money:false,fmt:v=>fX(v)});
+      lineChart(c2,fechas.map(fDate),[{label:'ROAS',data:fechas.map((f,i)=>div(ingD[i],invD[i])),color:PAL[0]}],{money:false,fmt:v=>fX(v),tick:v=>fX(v,1)});
     },0);
 
     const porTipo=Array.from(sumBy(cur,x=>x.tipo,['inversion','ingresos','ventas','clics','impresiones']).values()).sort((a,b)=>b.inversion-a.inversion);
@@ -1790,7 +1939,7 @@ function viewMarketing(){
     g2.appendChild(c3.card); g2.appendChild(c4.card); view.appendChild(g2);
     setTimeout(()=>{
       doughnut(c3,porTipo.map(x=>x._k),porTipo.map(x=>x.inversion));
-      barChart(c4,porTipo.map(x=>x._k),[{label:'ROAS',data:porTipo.map(x=>div(x.ingresos,x.inversion)),colors:porTipo.map((x,i)=>PAL[i])}],{money:false,fmt:v=>fX(v)});
+      barChart(c4,porTipo.map(x=>x._k),[{label:'ROAS',data:porTipo.map(x=>div(x.ingresos,x.inversion)),colors:porTipo.map((x,i)=>PAL[i])}],{money:false,fmt:v=>fX(v),tick:v=>fX(v,1)});
     },0);
     view.appendChild(dataTable({id:'mk_tipo',title:'Desempeño por tipo de campaña',search:false,
       cols:[{k:'tipo',l:'Tipo'},{k:'inversion',l:'Inversión',t:'money',total:'sum'},{k:'ingresos',l:'Ingresos',t:'money',total:'sum'},
@@ -1817,7 +1966,7 @@ function viewMarketing(){
     const c2=chartBox('ROAS por campaña','Verde = por encima de 5x · rojo = por debajo de 2x',Math.max(240,rows.length*24));
     view.appendChild(c2.card);
     setTimeout(()=>barChart(c2,rows.map(x=>x.campana.slice(0,34)),[{label:'ROAS',data:rows.map(x=>x.roas),
-      colors:rows.map(x=>x.roas>=5?ST.good:x.roas>=2?ST.warn:ST.crit)}],{horizontal:true,money:false,fmt:v=>fX(v),thick:18}),0);
+      colors:rows.map(x=>x.roas>=5?ST.good:x.roas>=2?ST.warn:ST.crit)}],{horizontal:true,money:false,fmt:v=>fX(v),tick:v=>fX(v,1),thick:18}),0);
     view.appendChild(dataTable({id:'mk_camp',title:'Campañas',sub:'Clic en cualquier encabezado para ordenar de mayor a menor o al revés',
       filters:[{k:'tipo',label:'Tipo',options:Array.from(new Set(rows.map(x=>x.tipo))).filter(Boolean)}],
       cols:[{k:'campana',l:'Campaña'},{k:'tipo',l:'Tipo'},{k:'inversion',l:'Inversión',t:'money',total:'sum'},
@@ -1841,7 +1990,7 @@ function viewMarketing(){
         {label:'Ganadas',data:rows.map(x=>x.gan),color:PAL[2]},
         {label:'Perdidas por presupuesto',data:rows.map(x=>x.perdP),color:PAL[3]},
         {label:'Perdidas por ranking',data:rows.map(x=>x.perdR),color:PAL[7]}],
-        {horizontal:true,stacked:true,money:false,fmt:v=>fP(v,0),thick:26}),0);
+        {horizontal:true,stacked:true,money:false,fmt:v=>fP(v,0),tick:v=>fP(v,0),thick:26}),0);
       view.appendChild(dataTable({id:'mk_pc',title:'Product Ads · por campaña',search:false,
         cols:[{k:'campana',l:'Campaña'},{k:'presupuesto',l:'Presupuesto',t:'money'},{k:'inversion',l:'Inversión',t:'money',total:'sum'},
           {k:'ingresos',l:'Ingresos',t:'money',total:'sum'},{k:'roasC',l:'ROAS',t:'x',render:r=>`<span class="pill ${r.roasC>=5?'p-good':r.roasC>=2?'p-warn':'p-crit'}">${fX(r.roasC)}</span>`},
@@ -1961,8 +2110,8 @@ function viewCatalogo(){
   view.appendChild(uploadStrip('catalogo'));
   if(!P.length&&!PV.length){ view.appendChild(emptyState('catalogo','Cargá el Excel de <b>Análisis de Publicaciones</b> (hojas “Publicaciones GH” y “Publicaciones con Ventas GH”).')); return view; }
 
-  const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(String(x.mla),x));
-  const base=P.map(x=>{ const v=ventasMap.get(String(x.mla))||{};
+  const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(mlaKey(x.mla),x));
+  const base=P.map(x=>{ const v=ventasMap.get(mlaKey(x.mla))||{};
     return {...x, uPeriodo:num(v.unidades), facturacion:num(v.facturacion),
       ticket:div(v.facturacion,v.unidades), ingEstimado:num(x.precio)*num(x.unidades)};
   });
@@ -1974,6 +2123,8 @@ function viewCatalogo(){
 
   const act=base.filter(x=>norm(x.estado).startsWith('activ'));
   const pau=base.filter(x=>norm(x.estado).startsWith('pausad'));
+  const sinVenta=act.filter(x=>!(x.uPeriodo>0));          /* activas que no vendieron nada en el reporte */
+  const sinVentaNunca=sinVenta.filter(x=>!(x.unidades>0)); /* además, nunca vendieron */
   const conVenta=base.filter(x=>x.uPeriodo>0||x.unidades>0);
   const visTot=sum(base,x=>x.visitas);
   const convProm=div(sum(act,x=>x.conversion*x.visitas),sum(act,x=>x.visitas));
@@ -1986,7 +2137,7 @@ function viewCatalogo(){
       {l:'Conversión promedio',ic:'🛒',v:fP(convProm),s:'ponderada por visitas'},
       {l:'Unidades vendidas',ic:'📦',v:fN(sum(base,x=>x.uPeriodo)||sum(base,x=>x.unidades)),s:PV.length?'según reporte de ventas':'histórico de la publicación'},
       PV.length?{l:'Facturación',ic:'💵',v:fMk(sum(base,x=>x.facturacion)),s:'de las publicaciones con ventas'}:null,
-      {l:'Sin ventas',ic:'😴',v:fN(act.length-act.filter(x=>x.uPeriodo>0).length),s:'publicaciones activas sin ventas en el reporte',inv:true},
+      {l:'Activas sin ventas',ic:'😴',v:fN(sinVenta.length),s:`${fP(div(sinVenta.length,act.length))} de las activas · ${fN(sinVentaNunca.length)} nunca vendieron`,inv:true},
       {l:'Sin visitas',ic:'🕳️',v:fN(act.filter(x=>x.visitas<50).length),s:'activas con menos de 50 visitas',inv:true}
     ]));
     const g=el('div','grid g2');
@@ -2013,14 +2164,14 @@ function viewCatalogo(){
       filters:[{k:'categoria',label:'Categoría',options:Array.from(new Set(base.map(x=>x.categoria))).filter(Boolean).sort()},
                {k:'estado',label:'Estado',options:Array.from(new Set(base.map(x=>x.estado))).filter(Boolean).sort()},
                {k:'promoL',label:'Promo',options:['Sí','No']}],
-      cols:[{k:'mla',l:'MLA'},{k:'titulo',l:'Título'},{k:'categoria',l:'Categoría'},
+      cols:[{k:'mlaL',l:'MLA'},{k:'titulo',l:'Título'},{k:'categoria',l:'Categoría'},
         {k:'estado',l:'Estado',t:'pill',render:r=>`<span class="pill ${norm(r.estado).startsWith('activ')?'p-good':'p-neutral'}">${esc(r.estado||'—')}</span>`},
         {k:'promoL',l:'Promo',t:'pill',render:r=>r.promo?'<span class="pill p-info">Sí</span>':'<span class="pill p-neutral">No</span>'},
         {k:'precio',l:'Precio',t:'money'},{k:'visitas',l:'Visitas',t:'num',total:'sum'},
         {k:'conversion',l:'Conversión',t:'pct',render:r=>`<span class="pill ${r.conversion>=.06?'p-good':r.conversion>=.02?'p-warn':'p-crit'}">${fP(r.conversion)}</span>`},
         {k:'unidades',l:'Unid. históricas',t:'num',total:'sum'},{k:'uPeriodo',l:'Unid. del reporte',t:'num',total:'sum'},
         {k:'facturacion',l:'Facturación',t:'money',total:'sum'},{k:'ticket',l:'Ticket',t:'money'}],
-      rows:base.map(x=>({...x,promoL:x.promo?'Sí':'No'})),sort:{k:'visitas',dir:'desc'},totals:true,
+      rows:base.map(x=>({...x,mlaL:'MLA'+x.mla,promoL:x.promo?'Sí':'No'})),sort:{k:'visitas',dir:'desc'},totals:true,
       searchKeys:['titulo','mla','categoria'],csvName:'catalogo'}));
   }
 
@@ -2044,7 +2195,8 @@ function viewCatalogo(){
       {n:opor2.length,t:'Convierten muy bien pero les falta tráfico',d:'Candidatas ideales para meter en Product Ads o mejorar posicionamiento.'},
       {n:opor3.length,t:'Pausadas que ya vendieron',d:'Tienen historial y reputación: reactivarlas es la venta más barata.'},
       {n:opor4.length,t:'Activas casi sin visitas',d:'Revisar título, categoría y atributos; probablemente no aparezcan en las búsquedas.'},
-      {n:opor5.length,t:'Con promoción y baja conversión',d:'Estás resignando margen sin resultado. Revisar si la promo se ve o si el problema es otro.'}
+      {n:opor5.length,t:'Con promoción y baja conversión',d:'Estás resignando margen sin resultado. Revisar si la promo se ve o si el problema es otro.'},
+      {n:sinVenta.length,t:'Activas sin ventas en el período',d:'Ocupan catálogo y no facturan. El detalle está abajo, con el diagnóstico de cada una.'}
     ];
     const g=el('div','grid g3');
     resumen.forEach((x,i)=>{ const c=card(null,null,`<div class="k-l">${esc(x.t)}</div><div class="k-v" style="font-size:26px;font-weight:700;margin:4px 0">${fN(x.n)}</div><div class="k-s" style="color:var(--ink2);font-size:12.5px">${esc(x.d)}</div>`); g.appendChild(c); });
@@ -2054,6 +2206,22 @@ function viewCatalogo(){
     bloque('⏸️ Pausadas con ventas históricas','Reactivar es más barato que crear una publicación nueva',opor3,[],'cat_op3');
     bloque('🕳️ Activas casi sin visitas','Menos de 50 visitas: problema de posicionamiento, no de precio',opor4,[],'cat_op4');
     bloque('🎉 Con promoción y baja conversión','Estás resignando margen sin mover la aguja',opor5,[],'cat_op5');
+    if(sinVenta.length) view.appendChild(dataTable({id:'cat_sinventa',
+      title:'😴 Activas sin ventas en el período',
+      sub:`${fN(sinVenta.length)} de ${fN(act.length)} publicaciones activas no vendieron ninguna unidad en el reporte cargado. Las que además nunca vendieron aparecen marcadas.`,
+      pageSize:25,
+      cols:[{k:'mlaL',l:'MLA'},{k:'titulo',l:'Publicación'},{k:'categoria',l:'Categoría'},{k:'precio',l:'Precio',t:'money'},
+        {k:'visitas',l:'Visitas',t:'num',total:'sum'},{k:'conversion',l:'Conversión histórica',t:'pct'},
+        {k:'unidades',l:'Unid. históricas',t:'num',total:'sum'},
+        {k:'promoL',l:'Promo',t:'pill',render:r=>r.promo?'<span class="pill p-info">Sí</span>':'<span class="pill p-neutral">No</span>'},
+        {k:'diag',l:'Diagnóstico',t:'pill',render:r=>{
+          if(!r.visitas) return '<span class="pill p-crit">Sin visitas: no aparece en búsquedas</span>';
+          if(!r.unidades) return '<span class="pill p-crit">Nunca vendió</span>';
+          if(r.visitas>=500) return '<span class="pill p-warn">Tiene tráfico y no convierte</span>';
+          return '<span class="pill p-neutral">Poco tráfico</span>';}}],
+      rows:sinVenta.map(x=>({...x,mlaL:'MLA'+x.mla,promoL:x.promo?'Sí':'No',
+        diag:!x.visitas?'Sin visitas':!x.unidades?'Nunca vendió':x.visitas>=500?'Tráfico sin conversión':'Poco tráfico'})),
+      sort:{k:'visitas',dir:'desc'},totals:true,searchKeys:['titulo','mla','categoria'],csvName:'activas_sin_ventas'}));
   }
 
   if(tabs.cur==='cat'){
@@ -2089,7 +2257,7 @@ function plantillaComercial(){
     ['Una fila por producto (o por publicación).'],
     ['Stock actual: unidades disponibles hoy (Full + depósito).'],
     ['Unidades vendidas 30d: ventas de los últimos 30 días — la app calcula rotación y días de cobertura.'],
-    ['Costo unitario: costo de compra sin IVA.'],
+    ['Costo unitario: costo de compra CON IVA (igual que tu Excel de productos).'],
     ['Comisión ML %: podés poner 14 o 0,14 — la app interpreta las dos formas.'],
     ['Promoción activa: Sí / No. % Descuento: descuento aplicado.'],
     ['Las fechas van como dd/mm/aaaa.'],['No cambies los nombres de las columnas.']]);
@@ -2113,258 +2281,377 @@ function plantillaStock(){
 }
 
 /* ------------------------------ COMERCIAL ------------------------------ */
-function viewComercial(){
+/* Retención real de Mercado Libre calculada con TUS datos: lo que ML se queda
+   (comisión + envío + impuestos) según la diferencia entre ingresos y Margen ML. */
+function retencionML(){
+  const V=rowsOf('ventas_dia').filter(x=>x.margen>0&&x.ingresos>0);
+  if(V.length<5) return {tasa:0.14, real:false, dias:V.length};
+  const ing=sum(V,x=>x.ingresos), mar=sum(V,x=>x.margen);
+  return {tasa:Math.max(0,Math.min(0.6,1-div(mar,ing))), real:true, dias:V.length};
+}
+/* Costo por publicación: un MLA puede tener varios SKU (variantes) → promedio */
+function mapaCostos(){
+  const m=new Map();
+  rowsOf('costos').forEach(c=>{
+    const k=mlaKey(c.mla); if(!k) return;
+    const o=m.get(k)||{con:0,sin:0,n:0,skus:[]};
+    o.con+=num(c.costoConIva); o.sin+=num(c.costoSinIva); o.n++; if(c.sku)o.skus.push(c.sku);
+    m.set(k,o);
+  });
+  const out=new Map();
+  m.forEach((o,k)=>out.set(k,{costoConIva:div(o.con,o.n),costoSinIva:div(o.sin,o.n),skus:o.skus,variantes:o.n}));
+  return out;
+}
+function filasComerciales(){
   const C=rowsOf('comercial'), P=rowsOf('publicaciones'), PV=rowsOf('pub_ventas'), S=rowsOf('stock');
+  const ret=retencionML(), costos=mapaCostos();
+  const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(mlaKey(x.mla),x));
+  const planilla=new Map(); C.forEach(x=>planilla.set(mlaKey(x.mla)||x.sku,x));
+  const stockMap=stockPorMLA();   /* Full (reporte de planificación) + depósito propio */
+
+  const universo = P.length? P.map(x=>({mla:mlaKey(x.mla),titulo:x.titulo,categoria:x.categoria,precio:num(x.precio),
+        estado:x.estado,promo:!!x.promo,visitas:num(x.visitas),histor:num(x.unidades)}))
+    : PV.map(x=>({mla:mlaKey(x.mla),titulo:x.titulo,categoria:'Sin categoría',precio:div(x.facturacion,x.unidades),
+        estado:'',promo:false,visitas:0,histor:num(x.unidades)}));
+
+  return universo.map(x=>{
+    const v=ventasMap.get(x.mla)||{}, pl=planilla.get(x.mla)||{}, st=stockMap.get(x.mla), co=costos.get(x.mla);
+    const lista = num(pl.precio)||x.precio||div(v.facturacion,v.unidades);
+    /* El precio REAL al que se vendió (facturación ÷ unidades) suele estar por debajo del de lista
+       por promociones y cuotas; el margen se calcula sobre ese, no sobre el cartel. */
+    const precioReal = v.unidades? div(v.facturacion,v.unidades) : lista;
+    const precio = precioReal;
+    const costo  = num(pl.costo)||(co?co.costoConIva:0);          /* costo con IVA, como en tu Excel de productos */
+    const stock  = num(pl.stock)||(st?st.full+st.flex:0);
+    const vendidos = num(v.unidades)||num(pl.vendidos)||0;
+    const facturacion = num(v.facturacion)||precio*vendidos;
+    const retencion = pl.comision!=null&&pl.comision>0? pl.comision : ret.tasa;
+    const neto = precio*(1-retencion) - num(pl.envio||0);
+    const margenU = costo? neto-costo : null;
+    const vDia=div(vendidos,30);
+    return {mla:x.mla, mlaL:'MLA'+x.mla, sku:(co&&co.skus[0])||pl.sku||'', producto:x.titulo, lista,
+      brechaPrecio: lista? div(precioReal,lista)-1 : 0,
+      categoria:x.categoria||'Sin categoría', estado:x.estado, promo:!!(pl.promo||x.promo), promoL:(pl.promo||x.promo)?'Sí':'No',
+      desc:num(pl.desc), desde:pl.desde||'', hasta:pl.hasta||'',
+      precio, costo, retencion, neto, margenU, margenPct: margenU==null?null:div(margenU,precio),
+      stock, vendidos, visitas:x.visitas, facturacion,
+      margenTotal: margenU==null?null:margenU*vendidos,
+      capital: costo? stock*costo : null,
+      vDia, dias: vDia&&stock? stock/vDia : null, rot:div(vendidos,stock||1),
+      sinCosto: !costo, variantes: co?co.variantes:0};
+  });
+}
+
+function viewComercial(){
+  const C=rowsOf('comercial'), P=rowsOf('publicaciones'), PV=rowsOf('pub_ventas'), S=rowsOf('stock'), CO=rowsOf('costos'), F=rowsOf('full_plan');
   const view=el('div');
   view.appendChild(uploadStrip('comercial',plantillaComercial));
-  const derivado=!C.length;
-
-  if(derivado&&!P.length&&!S.length&&!PV.length){
-    view.appendChild(emptyState('comercial','Descargá la plantilla, completala con costos, stock y promociones, y volvé a cargarla. Mientras tanto, si cargás Catálogo o Stock, la app arma una versión parcial con lo que haya.'));
+  if(!P.length&&!PV.length&&!C.length){
+    view.appendChild(emptyState('comercial','Cargá el Excel de <b>Análisis de Publicaciones</b> (para precios y ventas) y el de <b>costos por producto</b> (SKU, MLA, Costo c/IVA). Con esos dos calculo margen real por publicación.'));
     return view;
   }
-  const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(String(x.mla),x));
-  const stockMap=new Map(); S.forEach(x=>{ const k=String(x.mla); const p=stockMap.get(k)||{full:0,flex:0,camino:0};
-    p.full+=num(x.stock_full); p.flex+=num(x.stock_flex); p.camino+=num(x.en_camino); stockMap.set(k,p); });
+  const ret=retencionML();
+  const rows=filasComerciales();
+  const conCosto=rows.filter(x=>!x.sinCosto);
+  const haySt = S.length>0 || F.length>0 || rows.some(x=>x.stock>0);
 
-  let rows;
-  if(!derivado){
-    rows=C.map(x=>{
-      const st=stockMap.get(String(x.mla));
-      const stock=x.stock||(st?st.full+st.flex:0);
-      const com=x.comision||0.14;
-      const margenU=x.precio-(x.precio*com)-x.costo-(x.envio||0);
-      const vDia=div(x.vendidos,30);
-      return {...x,stock,margenU,margenPct:div(margenU,x.precio),vDia,dias:vDia?stock/vDia:null,
-        capital:stock*x.costo,facturacion:x.vendidos*x.precio,margenTotal:x.vendidos*margenU,
-        rot:div(x.vendidos,stock||1),promoL:x.promo?'Sí':'No'};
-    });
-  } else {
-    rows=(P.length?P:PV).map(x=>{
-      const v=ventasMap.get(String(x.mla))||{};
-      const st=stockMap.get(String(x.mla));
-      const stock=st?st.full+st.flex:0;
-      const vendidos=num(v.unidades)||num(x.unidades);
-      const precio=num(x.precio)||div(v.facturacion,v.unidades);
-      const vDia=div(vendidos,30);
-      return {sku:'',mla:x.mla,producto:x.titulo,categoria:x.categoria||'Sin categoría',stock,vendidos,costo:0,precio,
-        comision:0.14,envio:0,promo:!!x.promo,desc:0,margenU:null,margenPct:null,vDia,dias:vDia&&stock?stock/vDia:null,
-        capital:null,facturacion:num(v.facturacion)||precio*vendidos,margenTotal:null,rot:div(vendidos,stock||1),promoL:x.promo?'Sí':'No'};
-    });
-  }
-  // clasificación ABC por facturación
+  /* ABC por facturación */
   const ordF=rows.slice().sort((a,b)=>b.facturacion-a.facturacion);
   const totF=sum(ordF,x=>x.facturacion); let acum=0;
   ordF.forEach(x=>{ acum+=x.facturacion; const p=div(acum,totF); x.abc=p<=0.8?'A':p<=0.95?'B':'C'; x.acum=p; });
 
-  const tabs=subTabs('comercial',[{id:'rot',nom:'Rotación de stock'},{id:'mar',nom:'Margen'},{id:'promo',nom:'Promociones'},{id:'abc',nom:'ABC / Pareto'}]);
+  const tabs=subTabs('comercial',[{id:'mar',nom:'Margen'},{id:'rot',nom:'Rotación de stock'},{id:'promo',nom:'Promociones'},{id:'abc',nom:'ABC / Pareto'},{id:'costos',nom:'Costos cargados'}]);
   view.appendChild(tabs.node);
-  const haySt = S.length>0 || C.some(x=>num(x.stock)>0);
-  if(derivado&&!haySt) view.appendChild(el('div','note','ℹ️ Sin stock cargado no puedo calcular cobertura ni quiebres: subí el export de Publicaciones de ML en <b>Logística</b> o completá la plantilla comercial.'));
-  if(derivado) view.appendChild(el('div','note','⚠️ Todavía no cargaste la planilla comercial, así que estos números salen de Catálogo y Stock: hay <b>rotación y facturación</b>, pero no margen (falta el costo). Descargá la plantilla desde el botón de arriba para completar costos, comisiones y promociones.'));
 
-  const conStock=rows.filter(x=>x.stock>0);
-  const quiebre=haySt? rows.filter(x=>x.stock<=0&&x.vendidos>0) : [];
-  const criticos=haySt? rows.filter(x=>x.dias!=null&&x.dias<14&&x.stock>0) : [];
-  const dormidos=haySt? rows.filter(x=>x.stock>0&&x.vendidos===0) : [];
+  if(!CO.length) view.appendChild(el('div','note','⚠️ Todavía no cargaste el Excel de <b>costos por producto</b> (SKU, MLA, Costo c/IVA). Sin eso no hay margen: subilo con el botón de arriba y queda fijo para todo el equipo.'));
+  else view.appendChild(el('div','note info',`💡 Margen = <b>precio real de venta</b> × (1 − ${fP(ret.tasa)}) − <b>costo c/IVA</b>. El precio real sale de facturación ÷ unidades (así quedan incluidas promos y descuentos, que en tu catálogo dejan el precio bastante por debajo del de lista). La retención de Mercado Libre — comisión, envío e impuestos — ${ret.real?`la calculé comparando ingresos contra Margen ML en ${ret.dias} días de tus propios reportes`:'quedó en el valor por defecto porque falta el Margen ML en las ventas diarias'}.`));
 
+  const margenTot=sum(conCosto,x=>x.margenTotal), factCosto=sum(conCosto,x=>x.facturacion);
   view.appendChild(kpiRow([
-    {l:'Productos',ic:'📦',v:fN(rows.length),s:`${fN(conStock.length)} con stock`,hl:true},
-    !derivado?{l:'Capital inmovilizado',ic:'🏦',v:fMk(sum(rows,x=>x.capital)),s:'stock × costo',inv:true}:null,
-    !derivado?{l:'Margen promedio',ic:'📈',v:fP(div(sum(rows,x=>x.margenTotal),sum(rows,x=>x.facturacion))),s:'ponderado por facturación'}:null,
-    {l:'Días de cobertura',ic:'📅',v:conStock.filter(x=>x.dias!=null).length?nf1.format(median(conStock.filter(x=>x.dias!=null).map(x=>x.dias)))+' d':'—',s:'mediana del catálogo'},
-    {l:'Quiebres de stock',ic:'🚨',v:haySt?fN(quiebre.length):'—',s:haySt?'productos que venden y están en cero':'falta cargar el stock',inv:true},
-    {l:'Stock crítico',ic:'⏳',v:haySt?fN(criticos.length):'—',s:haySt?'menos de 14 días de cobertura':'falta cargar el stock',inv:true},
-    {l:'Sin rotación',ic:'🧊',v:haySt?fN(dormidos.length):'—',s:haySt?'con stock y sin ventas':'falta cargar el stock',inv:true},
-    {l:'Con promoción',ic:'🎉',v:fN(rows.filter(x=>x.promo).length),s:fP(div(rows.filter(x=>x.promo).length,rows.length))+' del catálogo'}
+    {l:'Publicaciones',ic:'🏷️',v:fN(rows.length),s:`${fN(conCosto.length)} con costo cargado`,hl:true},
+    CO.length?{l:'Margen promedio',ic:'📈',v:fP(div(margenTot,factCosto)),s:'ponderado por facturación'}:null,
+    CO.length?{l:'Margen del período',ic:'💰',v:fMk(margenTot),s:`sobre ${fMk(factCosto)} facturados`}:null,
+    CO.length?{l:'Retención de ML',ic:'🏦',v:fP(ret.tasa),s:ret.real?'calculada con tus ventas reales':'valor por defecto',inv:true}:null,
+    CO.length&&haySt?{l:'Capital inmovilizado',ic:'🏦',v:fMk(sum(conCosto,x=>x.capital)),s:'stock × costo c/IVA',inv:true}:null,
+    CO.length?{l:'Con margen negativo',ic:'🚨',v:fN(conCosto.filter(x=>x.margenU<0).length),s:'venden a pérdida',inv:true}:null,
+    haySt?{l:'Quiebres de stock',ic:'📦',v:fN(rows.filter(x=>x.stock<=0&&x.vendidos>0).length),s:'venden y están en cero',inv:true}:null,
+    {l:'Sin costo cargado',ic:'❓',v:fN(rows.length-conCosto.length),s:'no entran en el cálculo de margen',inv:true}
   ]));
 
-  if(tabs.cur==='rot'){
-    const top=rows.filter(x=>x.dias!=null&&x.stock>0).sort((a,b)=>a.dias-b.dias).slice(0,15);
-    const c=chartBox('Productos con menos días de cobertura','Stock actual dividido por la venta diaria',Math.max(240,top.length*22));
+  if(tabs.cur==='mar'){
+    if(!CO.length){ view.appendChild(card(null,null,'<div class="empty"><h4>Falta el Excel de costos</h4><p>Subí el archivo con SKU, MLA, IVA%, Costo s/IVA y Costo c/IVA. Queda guardado y compartido con el equipo.</p></div>')); return view; }
+    const peores=conCosto.filter(x=>x.vendidos>0).sort((a,b)=>a.margenPct-b.margenPct).slice(0,15);
+    const c=chartBox('Publicaciones con menor margen','Sobre las que tuvieron ventas en el período',Math.max(240,peores.length*22));
     view.appendChild(c.card);
-    setTimeout(()=>barChart(c,top.map(x=>x.producto.slice(0,34)),[{label:'Días de cobertura',data:top.map(x=>Math.round(x.dias)),
-      colors:top.map(x=>x.dias<7?ST.crit:x.dias<14?ST.serious:x.dias<30?ST.warn:ST.good)}],{horizontal:true,money:false,fmt:v=>fN(v)+' días',thick:16}),0);
+    setTimeout(()=>barChart(c,peores.map(x=>x.producto.slice(0,34)),[{label:'Margen',data:peores.map(x=>x.margenPct),
+      colors:peores.map(x=>x.margenPct<0?ST.crit:x.margenPct<0.1?ST.serious:x.margenPct<0.25?ST.warn:ST.good)}],
+      {horizontal:true,money:false,fmt:v=>fP(v),tick:v=>fP(v,0),thick:16}),0);
+    const c2=chartBox('Margen que aporta cada publicación','Top 15 por margen total del período',Math.max(240,15*22));
+    view.appendChild(c2.card);
+    const mejores=conCosto.slice().sort((a,b)=>b.margenTotal-a.margenTotal).slice(0,15);
+    setTimeout(()=>barChart(c2,mejores.map(x=>x.producto.slice(0,34)),[{label:'Margen total',data:mejores.map(x=>x.margenTotal),color:PAL[2]}],{horizontal:true,thick:16}),0);
+    view.appendChild(dataTable({id:'com_mar',title:'Margen por publicación',
+      sub:`Precio real de venta (facturación ÷ unidades) − retención de ML (${fP(ret.tasa)}) − costo con IVA`,
+      filters:[{k:'categoria',label:'Categoría',options:Array.from(new Set(rows.map(x=>x.categoria))).filter(Boolean).sort()},
+               {k:'abc',label:'Clase',options:['A','B','C']},{k:'promoL',label:'Promo',options:['Sí','No']}],
+      cols:[{k:'mlaL',l:'MLA'},{k:'producto',l:'Producto'},{k:'sku',l:'SKU'},{k:'categoria',l:'Categoría'},
+        {k:'lista',l:'Precio de lista',t:'money'},
+        {k:'precio',l:'Precio real de venta',t:'money'},
+        {k:'brechaPrecio',l:'Dif. vs lista',t:'pct'},
+        {k:'neto',l:'Neto tras ML',t:'money'},{k:'costo',l:'Costo c/IVA',t:'money'},
+        {k:'margenU',l:'Margen unitario',t:'money'},
+        {k:'margenPct',l:'% Margen',t:'pct',render:r=>r.margenPct==null?'—':`<span class="pill ${r.margenPct>=0.25?'p-good':r.margenPct>=0.1?'p-warn':'p-crit'}">${fP(r.margenPct)}</span>`},
+        {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
+        {k:'margenTotal',l:'Margen total',t:'money',total:'sum'},{k:'abc',l:'ABC'}],
+      rows:conCosto,sort:{k:'margenTotal',dir:'desc'},totals:true,
+      searchKeys:['producto','sku','mla','categoria'],csvName:'margen_por_publicacion'}));
+    const neg=conCosto.filter(x=>x.margenU<0).sort((a,b)=>a.margenU-b.margenU);
+    if(neg.length) view.appendChild(card('🚨 Venden a pérdida',`Con la retención de ML (${fP(ret.tasa)}) el precio no cubre el costo`,
+      alertBox(neg.slice(0,8).map(x=>({lvl:'crit',t:`${x.producto.slice(0,60)} pierde ${fM(Math.abs(x.margenU))} por unidad`,
+        d:`Precio ${fM(x.precio)} · costo ${fM(x.costo)} · vendió ${fN(x.vendidos)} unidades en el período (${fM(Math.abs(x.margenTotal))} de pérdida).`})))));
+  }
+
+  if(tabs.cur==='rot'){
+    if(!haySt) view.appendChild(el('div','note','ℹ️ Sin stock cargado no puedo calcular cobertura ni quiebres. Subí el <b>Reporte de Planificación</b> de Full en Logística.'));
+    const top=rows.filter(x=>x.dias!=null&&x.stock>0).sort((a,b)=>a.dias-b.dias).slice(0,15);
+    if(top.length){
+      const c=chartBox('Publicaciones con menos días de cobertura','Stock actual dividido por la venta diaria',Math.max(240,top.length*22));
+      view.appendChild(c.card);
+      setTimeout(()=>barChart(c,top.map(x=>x.producto.slice(0,34)),[{label:'Días de cobertura',data:top.map(x=>Math.round(x.dias)),
+        colors:top.map(x=>x.dias<7?ST.crit:x.dias<14?ST.serious:x.dias<30?ST.warn:ST.good)}],{horizontal:true,money:false,fmt:v=>fN(v)+' días',tick:v=>fN(v)+'d',thick:16}),0);
+    }
     view.appendChild(dataTable({id:'com_rot',title:'Rotación de stock',sub:'Ordená por días de cobertura para ver qué reponer primero',
       filters:[{k:'categoria',label:'Categoría',options:Array.from(new Set(rows.map(x=>x.categoria))).filter(Boolean).sort()},
                {k:'abc',label:'Clase',options:['A','B','C']}],
-      cols:[{k:'producto',l:'Producto'},{k:'sku',l:'SKU'},{k:'categoria',l:'Categoría'},{k:'abc',l:'ABC',t:'pill',
-          render:r=>`<span class="pill ${r.abc==='A'?'p-good':r.abc==='B'?'p-info':'p-neutral'}">${r.abc}</span>`},
-        {k:'stock',l:'Stock',t:'num',total:'sum'},{k:'vendidos',l:'Vendidos',t:'num',total:'sum'},
-        {k:'vDia',l:'Venta/día',t:'num2'},
+      cols:[{k:'producto',l:'Producto'},{k:'mlaL',l:'MLA'},{k:'categoria',l:'Categoría'},
+        {k:'abc',l:'ABC',t:'pill',render:r=>`<span class="pill ${r.abc==='A'?'p-good':r.abc==='B'?'p-info':'p-neutral'}">${r.abc}</span>`},
+        {k:'stock',l:'Stock',t:'num',total:'sum'},{k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'vDia',l:'Venta/día',t:'num2'},
         {k:'dias',l:'Días de cobertura',t:'num',render:r=>r.dias==null?'—':`<span class="pill ${r.dias<7?'p-crit':r.dias<14?'p-warn':'p-good'}">${fN(r.dias)} d</span>`},
         {k:'rot',l:'Rotación',t:'num2'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
-        ...(derivado?[]:[{k:'capital',l:'Capital inmovilizado',t:'money',total:'sum'}])],
+        {k:'capital',l:'Capital inmovilizado',t:'money',total:'sum'}],
       rows,sort:{k:'dias',dir:'asc'},totals:true,searchKeys:['producto','sku','mla','categoria'],csvName:'rotacion_stock'}));
-    const al=[];
-    quiebre.slice(0,5).forEach(x=>al.push({lvl:'crit',t:`Sin stock: ${x.producto.slice(0,60)}`,d:`Vendió ${fN(x.vendidos)} unidades y hoy está en cero. Cada día sin stock también castiga el posicionamiento.`}));
-    criticos.sort((a,b)=>a.dias-b.dias).slice(0,5).forEach(x=>al.push({lvl:'warn',t:`${x.producto.slice(0,60)}: ${fN(x.dias)} días de stock`,d:`Vende ${nf2.format(x.vDia)} unidades por día. Reponer antes de quedarte sin.`}));
-    dormidos.sort((a,b)=>b.stock-a.stock).slice(0,3).forEach(x=>al.push({lvl:'warn',t:`${x.producto.slice(0,60)} no rota`,d:`${fN(x.stock)} unidades sin ventas. Candidato a promoción, combo o liquidación.`}));
-    view.appendChild(card('Qué hacer ahora',null,alertBox(al)));
-  }
-
-  if(tabs.cur==='mar'){
-    if(derivado){ view.appendChild(card(null,null,'<div class="empty"><h4>Falta la información de costos</h4><p>El margen necesita costo unitario, comisión y envío. Descargá la plantilla comercial, completala y cargala.</p></div>')); return view; }
-    const ord=rows.filter(x=>x.precio>0).sort((a,b)=>a.margenPct-b.margenPct);
-    const c=chartBox('Productos con menor margen','% de margen sobre el precio de venta',Math.max(240,Math.min(15,ord.length)*22));
-    view.appendChild(c.card);
-    setTimeout(()=>barChart(c,ord.slice(0,15).map(x=>x.producto.slice(0,34)),[{label:'Margen',data:ord.slice(0,15).map(x=>x.margenPct),
-      colors:ord.slice(0,15).map(x=>x.margenPct<0.1?ST.crit:x.margenPct<0.25?ST.warn:ST.good)}],{horizontal:true,money:false,fmt:v=>fP(v),thick:16}),0);
-    const c2=chartBox('Margen vs. rotación','Arriba a la derecha: los que hay que empujar',300);
-    view.appendChild(c2.card);
-    setTimeout(()=>scatterChart(c2,[
-      {label:'Clase A',data:rows.filter(x=>x.abc==='A').map(x=>({x:x.vendidos,y:x.margenPct,n:x.producto.slice(0,40)})),color:PAL[0]},
-      {label:'Clase B',data:rows.filter(x=>x.abc==='B').map(x=>({x:x.vendidos,y:x.margenPct,n:x.producto.slice(0,40)})),color:PAL[1]},
-      {label:'Clase C',data:rows.filter(x=>x.abc==='C').map(x=>({x:x.vendidos,y:x.margenPct,n:x.producto.slice(0,40)})),color:PAL[2]}
-    ],{xl:'Unidades vendidas',yl:'Margen %',yfmt:fP}),0);
-    view.appendChild(dataTable({id:'com_mar',title:'Margen por producto',
-      filters:[{k:'categoria',label:'Categoría',options:Array.from(new Set(rows.map(x=>x.categoria))).filter(Boolean).sort()}],
-      cols:[{k:'producto',l:'Producto'},{k:'categoria',l:'Categoría'},{k:'precio',l:'Precio',t:'money'},{k:'costo',l:'Costo',t:'money'},
-        {k:'comision',l:'Comisión ML',t:'pct'},{k:'envio',l:'Envío',t:'money'},
-        {k:'margenU',l:'Margen unitario',t:'money'},
-        {k:'margenPct',l:'% Margen',t:'pct',render:r=>`<span class="pill ${r.margenPct>=0.3?'p-good':r.margenPct>=0.15?'p-warn':'p-crit'}">${fP(r.margenPct)}</span>`},
-        {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'margenTotal',l:'Margen total',t:'money',total:'sum'},
-        {k:'facturacion',l:'Facturación',t:'money',total:'sum'}],
-      rows,sort:{k:'margenTotal',dir:'desc'},totals:true,searchKeys:['producto','sku','categoria'],csvName:'margen_productos'}));
   }
 
   if(tabs.cur==='promo'){
     const hoy=iso(new Date());
     const promos=rows.filter(x=>x.promo);
     const vigentes=promos.filter(x=>(!x.desde||x.desde<=hoy)&&(!x.hasta||x.hasta>=hoy));
+    const promoConCosto=promos.filter(x=>!x.sinCosto);
+    const sinPromo=rows.filter(x=>!x.promo&&!x.sinCosto);
     view.appendChild(kpiRow([
-      {l:'Promociones activas',ic:'🎉',v:fN(promos.length),hl:true},
-      {l:'Vigentes hoy',ic:'📅',v:fN(vigentes.length)},
-      !derivado?{l:'Descuento promedio',ic:'🔻',v:fP(div(sum(promos,x=>x.desc),promos.length||1)),inv:true}:null,
-      !derivado?{l:'Margen con promo',ic:'📉',v:fP(div(sum(promos,x=>x.margenTotal),sum(promos,x=>x.facturacion))),s:'vs '+fP(div(sum(rows.filter(x=>!x.promo),x=>x.margenTotal),sum(rows.filter(x=>!x.promo),x=>x.facturacion)))+' sin promo'}:null,
-      {l:'Facturación con promo',ic:'💵',v:fMk(sum(promos,x=>x.facturacion)),s:fP(div(sum(promos,x=>x.facturacion),sum(rows,x=>x.facturacion)))+' del total'}
+      {l:'Con promoción',ic:'🎉',v:fN(promos.length),s:fP(div(promos.length,rows.length))+' del catálogo',hl:true},
+      {l:'Vigentes hoy',ic:'📅',v:fN(vigentes.length),s:promos.some(x=>x.desde)?'según fechas de la planilla':'sin fechas cargadas'},
+      CO.length?{l:'Margen con promo',ic:'📉',v:fP(div(sum(promoConCosto,x=>x.margenTotal),sum(promoConCosto,x=>x.facturacion))),
+        s:'vs '+fP(div(sum(sinPromo,x=>x.margenTotal),sum(sinPromo,x=>x.facturacion)))+' sin promo'}:null,
+      {l:'Facturación con promo',ic:'💵',v:fMk(sum(promos,x=>x.facturacion)),s:fP(div(sum(promos,x=>x.facturacion),sum(rows,x=>x.facturacion)))+' del total'},
+      CO.length?{l:'Promos con margen flaco',ic:'🚨',v:fN(promoConCosto.filter(x=>x.margenPct<0.08).length),s:'menos de 8% de margen',inv:true}:null
     ]));
-    view.appendChild(dataTable({id:'com_promo',title:'Promociones',sub:'Controlá que ninguna promo te deje margen negativo',
-      cols:[{k:'producto',l:'Producto'},{k:'categoria',l:'Categoría'},{k:'precio',l:'Precio',t:'money'},
-        {k:'desc',l:'% Descuento',t:'pct'},...(derivado?[]:[{k:'margenPct',l:'% Margen',t:'pct',
-          render:r=>`<span class="pill ${r.margenPct>=0.2?'p-good':r.margenPct>=0.08?'p-warn':'p-crit'}">${fP(r.margenPct)}</span>`}]),
+    view.appendChild(dataTable({id:'com_promo',title:'Publicaciones en promoción',sub:'Controlá que ninguna promo te deje margen negativo',
+      cols:[{k:'producto',l:'Producto'},{k:'mlaL',l:'MLA'},{k:'categoria',l:'Categoría'},{k:'precio',l:'Precio',t:'money'},
+        {k:'desc',l:'% Descuento',t:'pct'},{k:'costo',l:'Costo c/IVA',t:'money'},
+        {k:'margenPct',l:'% Margen',t:'pct',render:r=>r.margenPct==null?'—':`<span class="pill ${r.margenPct>=0.2?'p-good':r.margenPct>=0.08?'p-warn':'p-crit'}">${fP(r.margenPct)}</span>`},
         {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
-        {k:'desde',l:'Desde',t:'date'},{k:'hasta',l:'Hasta',t:'date'},{k:'stock',l:'Stock',t:'num'}],
-      rows:promos,sort:{k:'facturacion',dir:'desc'},totals:true,searchKeys:['producto','categoria'],csvName:'promociones'}));
-    if(!derivado){
-      const malas=promos.filter(x=>x.margenPct<0.08);
-      view.appendChild(card('Revisar',null,alertBox(malas.slice(0,8).map(x=>({lvl:x.margenPct<0?'crit':'warn',
-        t:`${x.producto.slice(0,60)} con ${fP(x.desc)} de descuento deja ${fP(x.margenPct)} de margen`,
-        d:x.margenPct<0?'Estás perdiendo plata en cada venta.':'Margen muy fino: revisar el descuento o el costo.'})))));
-    }
+        {k:'margenTotal',l:'Margen total',t:'money',total:'sum'},{k:'stock',l:'Stock',t:'num'},
+        {k:'desde',l:'Desde',t:'date'},{k:'hasta',l:'Hasta',t:'date'}],
+      rows:promos,sort:{k:'facturacion',dir:'desc'},totals:true,searchKeys:['producto','categoria','mla'],csvName:'promociones'}));
   }
 
   if(tabs.cur==='abc'){
     const acumData=ordF.slice(0,40);
-    const c=chartBox('Curva de Pareto','El 20% de los productos suele explicar el 80% de la facturación',300);
+    const c=chartBox('Curva de Pareto','El 20% de las publicaciones suele explicar el 80% de la facturación',300);
     view.appendChild(c.card);
-    setTimeout(()=>{
-      barChart(c,acumData.map((x,i)=>String(i+1)),[{label:'Facturación',data:acumData.map(x=>x.facturacion),
-        colors:acumData.map(x=>x.abc==='A'?PAL[0]:x.abc==='B'?PAL[3]:PAL[5])}]);
-    },0);
+    setTimeout(()=>barChart(c,acumData.map((x,i)=>String(i+1)),[{label:'Facturación',data:acumData.map(x=>x.facturacion),
+      colors:acumData.map(x=>x.abc==='A'?PAL[0]:x.abc==='B'?PAL[3]:PAL[5])}]),0);
     const porClase=['A','B','C'].map(k=>{ const rr=rows.filter(x=>x.abc===k);
       return {clase:k,productos:rr.length,facturacion:sum(rr,x=>x.facturacion),share:div(sum(rr,x=>x.facturacion),totF),
-        unidades:sum(rr,x=>x.vendidos),stock:sum(rr,x=>x.stock),capital:derivado?null:sum(rr,x=>x.capital)}; });
+        unidades:sum(rr,x=>x.vendidos),stock:sum(rr,x=>x.stock),margen:sum(rr,x=>x.margenTotal),
+        margenPct:div(sum(rr,x=>x.margenTotal),sum(rr.filter(x=>!x.sinCosto),x=>x.facturacion))}; });
     view.appendChild(dataTable({id:'com_abc',title:'Clasificación ABC',search:false,
-      cols:[{k:'clase',l:'Clase'},{k:'productos',l:'Productos',t:'num',total:'sum'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
-        {k:'share',l:'% de la facturación',t:'pct'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'stock',l:'Stock',t:'num',total:'sum'},
-        ...(derivado?[]:[{k:'capital',l:'Capital',t:'money',total:'sum'}])],
+      cols:[{k:'clase',l:'Clase'},{k:'productos',l:'Publicaciones',t:'num',total:'sum'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
+        {k:'share',l:'% de la facturación',t:'pct'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},
+        {k:'margen',l:'Margen',t:'money',total:'sum'},{k:'margenPct',l:'% Margen',t:'pct'},{k:'stock',l:'Stock',t:'num',total:'sum'}],
       rows:porClase,sort:{k:'clase',dir:'asc'},totals:true,csvName:'abc'}));
     view.appendChild(dataTable({id:'com_abc_det',title:'Detalle ordenado por facturación',
       cols:[{k:'producto',l:'Producto'},{k:'abc',l:'Clase'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
-        {k:'acum',l:'% Acumulado',t:'pct'},{k:'vendidos',l:'Unidades',t:'num',total:'sum'},{k:'stock',l:'Stock',t:'num',total:'sum'},{k:'dias',l:'Días cobertura',t:'num'}],
+        {k:'acum',l:'% Acumulado',t:'pct'},{k:'margenTotal',l:'Margen',t:'money',total:'sum'},
+        {k:'vendidos',l:'Unidades',t:'num',total:'sum'},{k:'stock',l:'Stock',t:'num',total:'sum'},{k:'dias',l:'Días cobertura',t:'num'}],
       rows:ordF,sort:{k:'facturacion',dir:'desc'},totals:true,searchKeys:['producto','categoria'],csvName:'abc_detalle'}));
+  }
+
+  if(tabs.cur==='costos'){
+    if(!CO.length){ view.appendChild(card(null,null,'<div class="empty"><h4>Sin costos cargados</h4><p>Subí el Excel de productos con SKU, MLA, IVA%, Costo s/IVA y Costo c/IVA.</p></div>')); return view; }
+    const sinCosto=rows.filter(x=>x.sinCosto&&(x.vendidos>0||norm(x.estado).startsWith('activ'))).sort((a,b)=>b.facturacion-a.facturacion);
+    view.appendChild(kpiRow([
+      {l:'SKU con costo',ic:'🧾',v:fN(CO.length),hl:true},
+      {l:'Publicaciones cubiertas',ic:'✅',v:fN(conCosto.length),s:fP(div(conCosto.length,rows.length))+' del catálogo'},
+      {l:'Sin costo y con ventas',ic:'⚠️',v:fN(sinCosto.filter(x=>x.vendidos>0).length),s:'no entran en el margen',inv:true},
+      {l:'Costo promedio c/IVA',ic:'💲',v:fM(div(sum(CO,x=>x.costoConIva),CO.length))}
+    ]));
+    if(sinCosto.length) view.appendChild(dataTable({id:'com_falta',title:'Publicaciones sin costo cargado',
+      sub:'Activas o con ventas que no encuentran su MLA en el Excel de costos',
+      cols:[{k:'mlaL',l:'MLA'},{k:'producto',l:'Producto'},{k:'categoria',l:'Categoría'},{k:'precio',l:'Precio',t:'money'},
+        {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},{k:'estado',l:'Estado'}],
+      rows:sinCosto,sort:{k:'facturacion',dir:'desc'},totals:true,searchKeys:['producto','mla'],csvName:'sin_costo'}));
+    view.appendChild(dataTable({id:'com_costos',title:'Costos cargados',sub:'Base fija: se actualiza sólo cuando subís un Excel nuevo',
+      filters:[{k:'categoria',label:'Categoría',options:Array.from(new Set(CO.map(x=>x.categoria))).filter(Boolean).sort()}],
+      cols:[{k:'sku',l:'SKU'},{k:'mlaL',l:'MLA'},{k:'titulo',l:'Producto'},{k:'categoria',l:'Categoría'},
+        {k:'iva',l:'IVA',t:'pct'},{k:'costoSinIva',l:'Costo s/IVA',t:'money'},{k:'costoConIva',l:'Costo c/IVA',t:'money'}],
+      rows:CO.map(x=>({...x,mlaL:x.mla?'MLA'+x.mla:''})),sort:{k:'costoConIva',dir:'desc'},
+      searchKeys:['sku','mla','titulo','categoria'],csvName:'costos'}));
   }
   return view;
 }
 
 /* ------------------------------ LOGÍSTICA ------------------------------ */
+/* Stock por publicación: junta el Reporte de Planificación de Full (por SKU)
+   con el export de Publicaciones (que trae el stock del depósito propio / Flex). */
+function stockPorMLA(){
+  const m=new Map();
+  rowsOf('full_plan').forEach(x=>{
+    (x.mlas||x.mla||'').split(',').filter(Boolean).forEach(k=>{
+      const o=m.get(k)||{full:0,camino:0,flex:0,sugeridas:0};
+      o.full+=num(x.aptas); o.camino+=num(x.camino); o.sugeridas+=num(x.sugeridas); m.set(k,o);
+    });
+  });
+  rowsOf('stock').forEach(x=>{ const k=mlaKey(x.mla);
+    const o=m.get(k)||{full:0,camino:0,flex:0,sugeridas:0};
+    o.flex+=num(x.stock_flex); o.full+=num(x.stock_full); o.camino+=num(x.en_camino); m.set(k,o);
+  });
+  return m;
+}
 function viewLogistica(){
-  const S=rowsOf('stock'), PV=rowsOf('pub_ventas'), P=rowsOf('publicaciones'), C=rowsOf('comercial');
+  const F=rowsOf('full_plan'), S=rowsOf('stock'), PV=rowsOf('pub_ventas'), P=rowsOf('publicaciones');
   const view=el('div');
   view.appendChild(uploadStrip('logistica',plantillaStock));
-  if(!S.length){ view.appendChild(emptyState('logistica','Cargá el export de <b>Publicaciones</b> de Mercado Libre (trae “Disponible en Full” y “En mi depósito”) o usá la plantilla de stock.')); return view; }
+  if(!F.length&&!S.length){ view.appendChild(emptyState('logistica','Cargá el <b>Reporte de Planificación</b> de Mercado Libre (trae stock en Full, unidades en camino y la sugerencia de reposición). Para el stock propio de Flex, sumá el export de <b>Publicaciones</b>.')); return view; }
 
-  const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(String(x.mla),x));
-  const catMap=new Map(); P.forEach(x=>catMap.set(String(x.mla),x));
-  const comMap=new Map(); C.forEach(x=>comMap.set(String(x.mla||x.sku),x));
-
-  const rows=S.map(x=>{
-    const v=ventasMap.get(String(x.mla))||{};
-    const cat=catMap.get(String(x.mla))||{};
-    const com=comMap.get(String(x.mla))||{};
-    const vendidos=num(v.unidades)||num(com.vendidos)||num(cat.unidades);
-    const vDia=div(vendidos,30);
-    const total=num(x.stock_full)+num(x.stock_flex);
-    const precio=num(x.precio)||num(cat.precio)||div(v.facturacion,v.unidades);
-    return {...x,titulo:x.titulo||cat.titulo||'',categoria:cat.categoria||'Sin categoría',total,
-      camino:num(x.en_camino),vendidos,vDia,dias:vDia?total/vDia:null,
-      diasFull:vDia?num(x.stock_full)/vDia:null,valor:total*precio,precio,
-      estadoStock: total<=0?'Sin stock':(vDia&&total/vDia<7)?'Crítico':(vDia&&total/vDia<21)?'Bajo':'OK'};
+  const costos=mapaCostos();
+  const catMap=new Map(); P.forEach(x=>catMap.set(mlaKey(x.mla),x));
+  const rows=F.map(x=>{
+    const co=costos.get(mlaKey(x.mla))||Array.from(costos.entries()).length&&null;
+    const costoSku=rowsOf('costos').find(c=>c.sku&&c.sku===x.sku);
+    const costo=costoSku? num(costoSku.costoConIva) : (co?co.costoConIva:0);
+    const cat=catMap.get(mlaKey(x.mla))||{};
+    const vDia=div(x.unidades30,30);
+    const total=num(x.aptas);
+    return {...x, mlaL:x.mla?'MLA'+x.mla:'', categoria:cat.categoria||'Sin categoría',
+      total, costo, valorCosto:total*costo, precio:div(x.ventas30,x.unidades30)||num(cat.precio),
+      valorVenta: total*(div(x.ventas30,x.unidades30)||num(cat.precio)),
+      vDia, dias: vDia? total/vDia : null,
+      diasConCamino: vDia? (total+num(x.camino))/vDia : null,
+      urgente: /sin stock|crítico|critico/i.test(x.nivel),
+      volSug: num(x.sugeridas)*num(x.volumen)/1e6,          /* m³ del envío sugerido */
+      riesgo: /sin stock|crítico|critico/i.test(x.nivel)? num(x.ventas30) : 0};
   });
-  const tabs=subTabs('logistica',[{id:'pan',nom:'Panorama'},{id:'det',nom:'Stock detallado'},{id:'rep',nom:'Reposición'}]);
+  const flexTot=sum(rowsOf('stock'),x=>x.stock_flex);
+  const tabs=subTabs('logistica',[{id:'pan',nom:'Panorama'},{id:'env',nom:'Qué enviar a Full'},{id:'det',nom:'Stock detallado'},...(S.length?[{id:'flex',nom:'Depósito propio (Flex)'}]:[])]);
   view.appendChild(tabs.node);
 
-  const full=sum(rows,x=>x.stock_full), flex=sum(rows,x=>x.stock_flex), camino=sum(rows,x=>x.camino);
+  const aptas=sum(rows,x=>x.aptas), camino=sum(rows,x=>x.camino), sug=sum(rows,x=>x.sugeridas);
+  const sinStock=rows.filter(x=>/sin stock/i.test(x.nivel));
+  const criticos=rows.filter(x=>/crítico|critico|bajo/i.test(x.nivel));
   view.appendChild(kpiRow([
-    {l:'Publicaciones con stock',ic:'📦',v:fN(rows.filter(x=>x.total>0).length),s:`de ${fN(rows.length)} totales`,hl:true},
-    {l:'Unidades en Full',ic:'🏭',v:fN(full),s:fP(div(full,full+flex))+' del stock total'},
-    {l:'Unidades en depósito (Flex)',ic:'🏠',v:fN(flex),s:fP(div(flex,full+flex))+' del stock total'},
+    {l:'Unidades en Full',ic:'🏭',v:fN(aptas),s:`${fN(rows.length)} productos · ${fN(rows.filter(x=>x.aptas>0).length)} con stock`,hl:true},
     camino?{l:'En camino a Full',ic:'🚚',v:fN(camino),s:'ya despachado, todavía no disponible'}:null,
-    {l:'Valorizado',ic:'💵',v:fMk(sum(rows,x=>x.valor)),s:'a precio de venta'},
-    {l:'Sin stock',ic:'🚨',v:fN(rows.filter(x=>x.total<=0).length),s:'publicaciones en cero',inv:true},
-    {l:'Stock crítico',ic:'⏳',v:fN(rows.filter(x=>x.estadoStock==='Crítico').length),s:'menos de 7 días',inv:true}
+    flexTot?{l:'En depósito propio',ic:'🏠',v:fN(flexTot),s:'stock para Flex'}:null,
+    {l:'Sin stock',ic:'🚨',v:fN(sinStock.length),s:`${fN(sinStock.filter(x=>x.unidades30>0).length)} venían vendiendo`,inv:true},
+    {l:'Stock crítico o bajo',ic:'⏳',v:fN(criticos.length),s:'según el nivel que informa ML',inv:true},
+    {l:'Facturación en riesgo',ic:'💸',v:fMk(sum(sinStock,x=>x.ventas30)),s:'lo que vendieron en 30 días los que hoy están en cero',inv:true},
+    {l:'Unidades sugeridas por ML',ic:'📤',v:fN(sug),s:`${nf1.format(sum(rows,x=>x.volSug))} m³ de envío`},
+    sum(rows,x=>x.valorCosto)?{l:'Valorizado a costo',ic:'🏦',v:fMk(sum(rows,x=>x.valorCosto)),s:'stock en Full × costo c/IVA',inv:true}:null
   ]));
 
   if(tabs.cur==='pan'){
     const g=el('div','grid g2');
-    const c1=chartBox('Full vs. depósito propio','Top 15 publicaciones por stock total',Math.max(260,15*22));
-    const c2=chartBox('Estado del stock','Cuántas publicaciones hay en cada situación');
+    const c1=chartBox('Nivel de stock según Mercado Libre','Cuántos productos hay en cada situación');
+    const c2=chartBox('Productos sin stock que más vendían','Facturación de los últimos 30 días · top 12',Math.max(260,12*22));
     g.appendChild(c1.card); g.appendChild(c2.card); view.appendChild(g);
-    const top=rows.slice().sort((a,b)=>b.total-a.total).slice(0,15);
-    const est=['OK','Bajo','Crítico','Sin stock'].map(k=>({k,n:rows.filter(x=>x.estadoStock===k).length}));
+    const niveles=['Sin stock','Crítico','Bajo','Medio','Suficiente','Sin dato'];
+    const cuenta=niveles.map(n=>rows.filter(x=>norm(x.nivel)===norm(n)).length);
+    const topRiesgo=sinStock.slice().sort((a,b)=>b.ventas30-a.ventas30).slice(0,12);
     setTimeout(()=>{
-      barChart(c1,top.map(x=>(x.titulo||x.mla).slice(0,32)),[
-        {label:'Full',data:top.map(x=>x.stock_full),color:PAL[0]},
-        {label:'Depósito (Flex)',data:top.map(x=>x.stock_flex),color:PAL[2]}],{horizontal:true,stacked:true,money:false,fmt:fN,thick:16});
-      barChart(c2,est.map(x=>x.k),[{label:'Publicaciones',data:est.map(x=>x.n),colors:[ST.good,ST.warn,ST.serious,ST.crit]}],{money:false,fmt:fN});
+      barChart(c1,niveles,[{label:'Productos',data:cuenta,colors:[ST.crit,ST.serious,ST.warn,ST.warn,ST.good,'#c3c2b7']}],{money:false,fmt:fN});
+      barChart(c2,topRiesgo.map(x=>x.producto.slice(0,34)),[{label:'Facturación 30 días',data:topRiesgo.map(x=>x.ventas30),color:PAL[7]}],{horizontal:true,thick:16});
     },0);
-    const porCat=Array.from(sumBy(rows,x=>x.categoria,['stock_full','stock_flex','total','valor']).values()).sort((a,b)=>b.total-a.total);
-    view.appendChild(dataTable({id:'log_cat',title:'Stock por categoría',search:false,
-      cols:[{k:'categoria',l:'Categoría'},{k:'pubs',l:'Publicaciones',t:'num',total:'sum'},{k:'stock_full',l:'Full',t:'num',total:'sum'},
-        {k:'stock_flex',l:'Depósito',t:'num',total:'sum'},{k:'total',l:'Total',t:'num',total:'sum'},{k:'valor',l:'Valorizado',t:'money',total:'sum'}],
-      rows:porCat.map(x=>({categoria:x._k,pubs:x._n,stock_full:x.stock_full,stock_flex:x.stock_flex,total:x.total,valor:x.valor})),
-      sort:{k:'total',dir:'desc'},totals:true,csvName:'stock_por_categoria'}));
+    const c3=chartBox('Días de cobertura de los que sí tienen stock','Stock en Full ÷ venta diaria de los últimos 30 días',Math.max(240,15*22));
+    view.appendChild(c3.card);
+    const cobertura=rows.filter(x=>x.dias!=null&&x.aptas>0&&x.vDia>0).sort((a,b)=>a.dias-b.dias).slice(0,15);
+    setTimeout(()=>barChart(c3,cobertura.map(x=>x.producto.slice(0,34)),[{label:'Días',data:cobertura.map(x=>Math.round(x.dias)),
+      colors:cobertura.map(x=>x.dias<7?ST.crit:x.dias<14?ST.serious:x.dias<30?ST.warn:ST.good)}],
+      {horizontal:true,money:false,fmt:v=>fN(v)+' días',tick:v=>fN(v)+'d',thick:16}),0);
+    const al=[];
+    sinStock.filter(x=>x.clasificacion==='Estrella').slice(0,5).forEach(x=>al.push({lvl:'crit',
+      t:`${x.producto.slice(0,60)} — producto Estrella sin stock`,
+      d:`Vendió ${fMk(x.ventas30)} (${fN(x.unidades30)} unidades) en 30 días. ML sugiere enviar ${fN(x.sugeridas)} unidades${x.limite?`, con fecha límite ${x.limite}`:''}.`}));
+    criticos.slice(0,4).forEach(x=>al.push({lvl:'warn',t:`${x.producto.slice(0,60)}: nivel ${x.nivel.toLowerCase()}`,
+      d:`Quedan ${fN(x.aptas)} unidades${x.dias!=null?` (${fN(x.dias)} días de venta)`:''}. Sugerido: ${fN(x.sugeridas)}.`}));
+    view.appendChild(card('Urgencias de reposición',null,alertBox(al)));
+  }
+
+  if(tabs.cur==='env'){
+    const enviar=rows.filter(x=>x.sugeridas>0).sort((a,b)=>b.riesgo-a.riesgo||b.sugeridas-a.sugeridas);
+    view.appendChild(el('div','note info',`Lista armada con la <b>sugerencia de Mercado Libre</b> del reporte de planificación, ordenada por lo que hay en riesgo. Total: <b>${fN(sum(enviar,x=>x.sugeridas))} unidades</b> · <b>${nf1.format(sum(enviar,x=>x.volSug))} m³</b>${sum(enviar,x=>x.costo)?` · <b>${fMk(sum(enviar,x=>x.sugeridas*x.costo))}</b> a costo`:''}.`));
+    const porLimite=Array.from(groupBy(enviar.filter(x=>x.limite),x=>x.limite)).map(([k,v])=>({limite:k,n:v.length,u:sum(v,x=>x.sugeridas)}));
+    if(porLimite.length){
+      const c=chartBox('Unidades a enviar por fecha límite','La fecha límite es la que informa ML para que llegue a tiempo');
+      view.appendChild(c.card);
+      setTimeout(()=>barChart(c,porLimite.map(x=>x.limite),[{label:'Unidades',data:porLimite.map(x=>x.u),color:PAL[1]}],{money:false,fmt:fN}),0);
+    }
+    view.appendChild(dataTable({id:'log_env',title:'Qué enviar a Full',sub:'Ordenado por facturación en riesgo. Las columnas de volumen y costo sirven para armar el envío.',
+      filters:[{k:'nivel',label:'Nivel',options:['Sin stock','Crítico','Bajo','Medio','Suficiente']},
+               {k:'clasificacion',label:'Clasificación',options:['Estrella']},
+               {k:'limite',label:'Fecha límite',options:Array.from(new Set(enviar.map(x=>x.limite).filter(Boolean))).sort()}],
+      cols:[{k:'producto',l:'Producto'},{k:'sku',l:'SKU'},{k:'mlaL',l:'MLA'},{k:'variante',l:'Variante'},
+        {k:'nivel',l:'Nivel',t:'pill',render:r=>`<span class="pill ${/sin stock/i.test(r.nivel)?'p-crit':/crítico|critico/i.test(r.nivel)?'p-crit':/bajo|medio/i.test(r.nivel)?'p-warn':/suficiente/i.test(r.nivel)?'p-good':'p-neutral'}">${esc(r.nivel)}</span>`},
+        {k:'aptas',l:'En Full',t:'num',total:'sum'},{k:'camino',l:'En camino',t:'num',total:'sum'},
+        {k:'unidades30',l:'Vendidas 30d',t:'num',total:'sum'},{k:'ventas30',l:'Facturación 30d',t:'money',total:'sum'},
+        {k:'dias',l:'Días de cobertura',t:'num',render:r=>r.dias==null?'—':fN(r.dias)+' d'},
+        {k:'sugeridas',l:'Sugerido por ML',t:'num',total:'sum',cls:'strong'},
+        {k:'volSug',l:'Volumen (m³)',t:'num2',total:'sum'},
+        {k:'costoEnvio',l:'Costo del envío',t:'money',total:'sum'},
+        {k:'limite',l:'Fecha límite'},{k:'obs',l:'Observación de ML'}],
+      rows:enviar.map(x=>({...x,costoEnvio:x.sugeridas*x.costo})),
+      sort:{k:'ventas30',dir:'desc'},totals:true,searchKeys:['producto','sku','mla','obs'],csvName:'enviar_a_full'}));
   }
 
   if(tabs.cur==='det'){
-    view.appendChild(dataTable({id:'log_det',title:'Stock por publicación',sub:'Ordená por días de cobertura o por stock para priorizar',
-      searchPlaceholder:'Buscar por título, MLA o SKU…',
-      filters:[{k:'estadoStock',label:'Estado',options:['OK','Bajo','Crítico','Sin stock']},
-               {k:'categoria',label:'Categoría',options:Array.from(new Set(rows.map(x=>x.categoria))).filter(Boolean).sort()}],
-      cols:[{k:'mla',l:'MLA'},{k:'titulo',l:'Título'},{k:'variante',l:'Variante'},{k:'categoria',l:'Categoría'},
-        {k:'stock_full',l:'Full',t:'num',total:'sum'},{k:'camino',l:'En camino',t:'num',total:'sum'},
-        {k:'stock_flex',l:'Depósito',t:'num',total:'sum'},{k:'total',l:'Total',t:'num',total:'sum'},
-        {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'vDia',l:'Venta/día',t:'num2'},
-        {k:'dias',l:'Días cobertura',t:'num',render:r=>r.dias==null?'—':fN(r.dias)+' d'},
-        {k:'estadoStock',l:'Estado',t:'pill',render:r=>`<span class="pill ${r.estadoStock==='OK'?'p-good':r.estadoStock==='Bajo'?'p-warn':'p-crit'}">${r.estadoStock}</span>`},
-        {k:'valor',l:'Valorizado',t:'money',total:'sum'}],
-      rows,sort:{k:'total',dir:'desc'},totals:true,searchKeys:['mla','titulo','sku','categoria','variante'],csvName:'stock_detalle'}));
+    view.appendChild(dataTable({id:'log_det',title:'Stock en Full por producto',sub:'Todo lo que trae el reporte de planificación, ordenable por cualquier columna',
+      searchPlaceholder:'Buscar por producto, SKU o MLA…',
+      filters:[{k:'nivel',label:'Nivel',options:['Sin stock','Crítico','Bajo','Medio','Suficiente','Sin dato']},
+               {k:'clasificacion',label:'Clasificación',options:['Estrella']},
+               {k:'tamano',label:'Tamaño',options:Array.from(new Set(rows.map(x=>x.tamano).filter(Boolean))).sort()}],
+      cols:[{k:'sku',l:'SKU'},{k:'producto',l:'Producto'},{k:'variante',l:'Variante'},{k:'mlaL',l:'MLA'},
+        {k:'clasificacion',l:'Clasif.',t:'pill',render:r=>r.clasificacion?'<span class="pill p-info">⭐ '+esc(r.clasificacion)+'</span>':'—'},
+        {k:'aptas',l:'En Full',t:'num',total:'sum'},{k:'camino',l:'En camino',t:'num',total:'sum'},
+        {k:'minimas',l:'Mínimo "Llega hoy"',t:'num'},
+        {k:'unidades30',l:'Vendidas 30d',t:'num',total:'sum'},{k:'vDia',l:'Venta/día',t:'num2'},
+        {k:'dias',l:'Días cobertura',t:'num',render:r=>r.dias==null?'—':`<span class="pill ${r.dias<7?'p-crit':r.dias<21?'p-warn':'p-good'}">${fN(r.dias)} d</span>`},
+        {k:'ventas30',l:'Facturación 30d',t:'money',total:'sum'},
+        {k:'valorCosto',l:'Valorizado a costo',t:'money',total:'sum'},
+        {k:'nivel',l:'Nivel'},{k:'sugeridas',l:'Sugerido',t:'num',total:'sum'},{k:'tamano',l:'Tamaño'}],
+      rows,sort:{k:'ventas30',dir:'desc'},totals:true,searchKeys:['producto','sku','mla','variante'],csvName:'stock_full'}));
   }
 
-  if(tabs.cur==='rep'){
-    const rep=rows.filter(x=>x.vDia>0).map(x=>({...x,sugerido:Math.max(0,Math.ceil(x.vDia*30)-x.total-x.camino)}))
-      .filter(x=>x.sugerido>0).sort((a,b)=>(a.dias==null?999:a.dias)-(b.dias==null?999:b.dias));
-    view.appendChild(el('div','note info','La sugerencia cubre <b>30 días de venta</b> según el ritmo de los últimos 30 días, descontando lo que ya está en camino a Full. Ajustá el criterio según estacionalidad y tiempos de tu proveedor.'));
-    view.appendChild(dataTable({id:'log_rep',title:'Sugerencia de reposición',sub:'Ordenado por urgencia (menos días de cobertura primero)',
-      cols:[{k:'titulo',l:'Producto'},{k:'mla',l:'MLA'},{k:'total',l:'Stock hoy',t:'num',total:'sum'},{k:'camino',l:'En camino',t:'num',total:'sum'},
-        {k:'vDia',l:'Venta/día',t:'num2'},{k:'dias',l:'Días cobertura',t:'num',render:r=>r.dias==null?'—':`<span class="pill ${r.dias<7?'p-crit':r.dias<21?'p-warn':'p-good'}">${fN(r.dias)} d</span>`},
-        {k:'sugerido',l:'Reponer (30 días)',t:'num',total:'sum',cls:'strong'}],
-      rows:rep,sort:{k:'dias',dir:'asc'},totals:true,searchKeys:['titulo','mla'],csvName:'reposicion'}));
-    const al=[];
-    rows.filter(x=>x.total<=0&&x.vendidos>0).slice(0,6).forEach(x=>al.push({lvl:'crit',t:'Sin stock: '+(x.titulo||x.mla).slice(0,60),d:`Venía vendiendo ${fN(x.vendidos)} unidades. Publicación sin stock = pérdida de posicionamiento.`}));
-    rows.filter(x=>x.estadoStock==='Crítico').slice(0,6).forEach(x=>al.push({lvl:'warn',t:(x.titulo||x.mla).slice(0,60)+`: ${fN(x.dias)} días de stock`,d:`Reponer ${fN(Math.ceil(x.vDia*30))} unidades para cubrir un mes.`}));
-    view.appendChild(card('Urgencias',null,alertBox(al)));
+  if(tabs.cur==='flex'){
+    const fullMap=stockPorMLA();
+    const flex=S.map(x=>{ const k=mlaKey(x.mla); const o=fullMap.get(k)||{};
+      const cat=catMap.get(k)||{};
+      return {mlaL:'MLA'+k,titulo:x.titulo||cat.titulo||'',variante:x.variante||'',
+        flex:num(x.stock_flex),full:num(o.full||x.stock_full),camino:num(o.camino||x.en_camino),
+        total:num(x.stock_flex)+num(o.full||x.stock_full),precio:num(x.precio)||num(cat.precio),
+        valor:(num(x.stock_flex)+num(o.full||x.stock_full))*(num(x.precio)||num(cat.precio))}; });
+    const c=chartBox('Full vs. depósito propio','Top 15 publicaciones por stock total',Math.max(260,15*22));
+    view.appendChild(c.card);
+    const top=flex.slice().sort((a,b)=>b.total-a.total).slice(0,15);
+    setTimeout(()=>barChart(c,top.map(x=>(x.titulo||x.mlaL).slice(0,32)),[
+      {label:'Full',data:top.map(x=>x.full),color:PAL[0]},
+      {label:'Depósito propio',data:top.map(x=>x.flex),color:PAL[2]}],{horizontal:true,stacked:true,money:false,fmt:fN,thick:16}),0);
+    view.appendChild(dataTable({id:'log_flex',title:'Stock propio (Flex)',
+      cols:[{k:'mlaL',l:'MLA'},{k:'titulo',l:'Título'},{k:'variante',l:'Variante'},
+        {k:'flex',l:'Depósito propio',t:'num',total:'sum'},{k:'full',l:'En Full',t:'num',total:'sum'},
+        {k:'camino',l:'En camino',t:'num',total:'sum'},{k:'total',l:'Total',t:'num',total:'sum'},
+        {k:'precio',l:'Precio',t:'money'},{k:'valor',l:'Valorizado',t:'money',total:'sum'}],
+      rows:flex,sort:{k:'total',dir:'desc'},totals:true,searchKeys:['titulo','mlaL'],csvName:'stock_flex'}));
   }
   return view;
 }
@@ -2407,7 +2694,8 @@ function viewNegocio(){
 
   const gInd=div(sum(gh,x=>x.ingresos),gh.length||1), cInd=div(sum(cd,x=>x.ingresos),cd.length||1);
   const gUd=div(sum(gh,x=>x.unidades),gh.length||1), cUd=div(sum(cd,x=>x.unidades),cd.length||1);
-  const gTk=div(sum(gh,x=>x.ingresos),sum(gh,x=>x.pedidos)||sum(gh,x=>x.unidades)), cTk=div(sum(cd,x=>x.ingresos),sum(cd,x=>x.unidades));
+  /* los dos por unidad vendida, que es lo único comparable con el reporte del competidor */
+  const gTk=div(sum(gh,x=>x.ingresos),sum(gh,x=>x.unidades)), cTk=div(sum(cd,x=>x.ingresos),sum(cd,x=>x.unidades));
 
   if(tabs.cur==='comp'){
     view.appendChild(kpiRow([
@@ -2416,7 +2704,7 @@ function viewNegocio(){
       {l:'Brecha de ingresos',ic:'↔️',v:cInd?fX(div(cInd,gInd)):'—',s:cInd>gInd?`vende ${fX(div(cInd,gInd))} lo nuestro`:'estamos arriba',inv:cInd>gInd},
       {l:'Unidades/día · nosotros',ic:'📦',v:fN(gUd)},
       {l:'Unidades/día · competencia',ic:'📦',v:fN(cUd),s:cUd>gUd?fN(cUd-gUd)+' más por día':''},
-      {l:'Ticket · nosotros',ic:'🎫',v:fM(gTk),s:gTk>cTk?fX(div(gTk,cTk))+' el de ellos':''},
+      {l:'Ticket · nosotros',ic:'🎫',v:fM(gTk),s:'por unidad'+(gTk>cTk?` · ${fX(div(gTk,cTk))} el de ellos`:'')},
       {l:'Ticket · competencia',ic:'🎫',v:fM(cTk)},
       CP.length&&PV.length?{l:'Publicaciones con ventas',ic:'🏷️',v:`${fN(PV.length)} vs ${fN(CP.length)}`,s:'nosotros vs. ellos'}:null
     ]));
@@ -2459,7 +2747,7 @@ function viewNegocio(){
     const c2=chartBox('Ticket promedio','Nuestro posicionamiento de precio frente al de ellos');
     view.appendChild(c2.card);
     setTimeout(()=>lineChart(c2,fechas.map(fDate),[
-      {label:'Ganga Home',data:fechas.map(f=>{const a=mapG.get(f); return a?div(a.ingresos,a.pedidos||a.unidades):null;}),color:PAL[0]},
+      {label:'Ganga Home',data:fechas.map(f=>{const a=mapG.get(f); return a?div(a.ingresos,a.unidades):null;}),color:PAL[0]},
       {label:'Competencia',data:fechas.map(f=>{const b=mapC.get(f); return b?div(b.ingresos,b.unidades):null;}),color:PAL[1]}]),0);
     const meses=Array.from(new Set(fechas.map(f=>f.slice(0,7)))).sort();
     view.appendChild(dataTable({id:'ng_mes',title:'Comparativa mensual',search:false,
@@ -2469,7 +2757,7 @@ function viewNegocio(){
       rows:meses.map(m=>{ const a=V.filter(x=>x.fecha.startsWith(m)), b=CD.filter(x=>x.fecha.startsWith(m));
         const ai=sum(a,x=>x.ingresos), bi=sum(b,x=>x.ingresos), au=sum(a,x=>x.unidades), bu=sum(b,x=>x.unidades);
         return {mes:MESN[+m.slice(5)-1]+' '+m.slice(0,4),ghIng:ai,cIng:bi,ratio:div(bi,ai),ghUni:au,cUni:bu,
-          ghTk:div(ai,sum(a,x=>x.pedidos)||au),cTk:div(bi,bu)}; }),
+          ghTk:div(ai,au),cTk:div(bi,bu)}; }),
       sort:{k:'mes',dir:'asc'},totals:true,csvName:'comparativa_mensual'}));
   }
 
@@ -2524,17 +2812,390 @@ function viewNegocio(){
   return view;
 }
 /* =========================================================================
+   SECTOR 8 · SUGERENCIAS (aprendizaje automático sobre tus propios datos)
+   Todo se calcula en el navegador: regresión, estacionalidad, k-means,
+   detección de anomalías y correlaciones. Sin servicios externos.
+   ========================================================================= */
+const media = a => a.length? a.reduce((x,y)=>x+y,0)/a.length : 0;
+const desvio = a => { if(a.length<2) return 0; const m=media(a); return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/(a.length-1)); };
+function regresion(xs,ys){                       /* mínimos cuadrados */
+  const n=xs.length; if(n<2) return {a:media(ys),b:0,r2:0};
+  const mx=media(xs),my=media(ys);
+  let num=0,den=0; for(let i=0;i<n;i++){ num+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2; }
+  const b=den?num/den:0, a=my-b*mx;
+  const ssTot=ys.reduce((s,y)=>s+(y-my)**2,0);
+  const ssRes=ys.reduce((s,y,i)=>s+(y-(a+b*xs[i]))**2,0);
+  return {a,b,r2:ssTot?1-ssRes/ssTot:0};
+}
+function pearson(xs,ys){
+  const n=xs.length; if(n<3) return 0;
+  const mx=media(xs),my=media(ys); let sxy=0,sx=0,sy=0;
+  for(let i=0;i<n;i++){ sxy+=(xs[i]-mx)*(ys[i]-my); sx+=(xs[i]-mx)**2; sy+=(ys[i]-my)**2; }
+  return (sx&&sy)? sxy/Math.sqrt(sx*sy) : 0;
+}
+/* k-means sencillo con inicialización determinista (mismos datos → mismos grupos) */
+function kmeans(puntos,k,iter){
+  if(puntos.length<k) return puntos.map((p,i)=>i);
+  const dim=puntos[0].length;
+  const orden=puntos.map((p,i)=>[p.reduce((a,b)=>a+b,0),i]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+  let cent=Array.from({length:k},(_,j)=>puntos[orden[Math.floor(j*(puntos.length-1)/(k-1||1))]].slice());
+  let asign=new Array(puntos.length).fill(0);
+  for(let it=0;it<(iter||25);it++){
+    let cambio=false;
+    puntos.forEach((p,i)=>{
+      let mejor=0,mejorD=Infinity;
+      cent.forEach((c,j)=>{ let d=0; for(let q=0;q<dim;q++) d+=(p[q]-c[q])**2; if(d<mejorD){mejorD=d;mejor=j;} });
+      if(asign[i]!==mejor){ asign[i]=mejor; cambio=true; }
+    });
+    cent=cent.map((c,j)=>{ const g=puntos.filter((p,i)=>asign[i]===j);
+      return g.length? Array.from({length:dim},(_,q)=>media(g.map(p=>p[q]))) : c; });
+    if(!cambio) break;
+  }
+  return asign;
+}
+/* Pronóstico: tendencia lineal + factor por día de la semana (estacionalidad semanal) */
+function pronostico(serie,dias){
+  const ys=serie.map(x=>x.v), xs=serie.map((_,i)=>i);
+  const reg=regresion(xs,ys);
+  const factor={};
+  for(let d=0;d<7;d++){
+    const g=serie.filter(s=>isoToDate(s.f).getDay()===d);
+    const esperado=g.map(s=>reg.a+reg.b*serie.indexOf(s));
+    factor[d]= g.length&&media(esperado)? media(g.map(s=>s.v))/media(esperado) : 1;
+  }
+  const resid=serie.map((s,i)=>s.v-(reg.a+reg.b*i)*factor[isoToDate(s.f).getDay()]);
+  const err=desvio(resid);
+  const out=[]; const ult=isoToDate(serie[serie.length-1].f);
+  for(let i=1;i<=dias;i++){
+    const f=new Date(ult); f.setDate(f.getDate()+i);
+    const base=(reg.a+reg.b*(serie.length-1+i))*factor[f.getDay()];
+    out.push({f:iso(f),v:Math.max(0,base),lo:Math.max(0,base-1.28*err),hi:base+1.28*err});
+  }
+  return {puntos:out,reg,err,factor};
+}
+
+function viewSugerencias(){
+  const V=rowsOf('ventas_dia'), P=rowsOf('publicaciones'), PV=rowsOf('pub_ventas'), C=rowsOf('postventa'), Q=rowsOf('preguntas');
+  const view=el('div');
+  view.appendChild(uploadStrip('sugerencias'));
+  if(V.length<14&&!P.length){ view.appendChild(emptyState('sugerencias','Necesito al menos dos semanas de ventas o el catálogo de publicaciones para poder entrenar los modelos. Cargá los Excel de Resumen y Catálogo.')); return view; }
+
+  const tabs=subTabs('sugerencias',[{id:'plan',nom:'Plan de acción'},{id:'fore',nom:'Pronóstico'},{id:'seg',nom:'Segmentos'},{id:'anom',nom:'Anomalías'},{id:'precio',nom:'Precio y conversión'}]);
+  view.appendChild(tabs.node);
+  view.appendChild(el('div','note info','Estas sugerencias las calcula la app sola con tus datos históricos: tendencia y estacionalidad para el pronóstico, agrupamiento (k-means) para los segmentos y desvíos estadísticos para las anomalías. Son una guía para priorizar, no una verdad absoluta — siempre mostramos de dónde sale cada número.'));
+
+  /* ---------- base de publicaciones enriquecida ---------- */
+  const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(mlaKey(x.mla),x));
+  const pubs=P.map(x=>{ const v=ventasMap.get(mlaKey(x.mla))||{};
+    return {mla:mlaKey(x.mla),mlaL:'MLA'+mlaKey(x.mla),titulo:x.titulo,categoria:x.categoria||'Sin categoría',
+      precio:num(v.unidades)? div(v.facturacion,v.unidades) : num(x.precio),   /* precio real de venta */
+      lista:num(x.precio),visitas:num(x.visitas),conv:num(x.conversion),estado:x.estado,promo:!!x.promo,
+      unidades:num(v.unidades)||num(x.unidades),facturacion:num(v.facturacion)||num(x.precio)*num(x.unidades)}; });
+  const activas=pubs.filter(x=>norm(x.estado).startsWith('activ'));
+
+  /* ---------- 1. PRONÓSTICO ---------- */
+  const serie=V.slice().sort((a,b)=>a.fecha<b.fecha?-1:1).map(x=>({f:x.fecha,v:x.ingresos,u:x.unidades}));
+  let fc=null, fcU=null;
+  if(serie.length>=14){
+    fc=pronostico(serie,14);
+    fcU=pronostico(serie.map(x=>({f:x.f,v:x.u})),14);
+  }
+
+  if(tabs.cur==='fore'){
+    if(!fc){ view.appendChild(card(null,null,'<div class="empty">Necesito al menos 14 días de ventas para pronosticar.</div>')); return view; }
+    const totalProx=sum(fc.puntos,x=>x.v), ultimos14=sum(serie.slice(-14),x=>x.v);
+    const tendencia=fc.reg.b;
+    view.appendChild(kpiRow([
+      {l:'Ingresos previstos · 14 días',ic:'🔮',v:fMk(totalProx),s:`${fMk(div(totalProx,14))} por día`,hl:true},
+      {l:'Contra los últimos 14 días',ic:'📊',v:fP(div(totalProx-ultimos14,ultimos14)),s:fMk(ultimos14)+' reales',d:div(totalProx-ultimos14,ultimos14)},
+      {l:'Tendencia diaria',ic:tendencia>=0?'📈':'📉',v:(tendencia>=0?'+':'')+fMk(tendencia),s:'lo que cambia por día según la recta'},
+      {l:'Unidades previstas',ic:'📦',v:fN(sum(fcU.puntos,x=>x.v)),s:'próximos 14 días'},
+      {l:'Precisión del modelo',ic:'🎯',v:fP(Math.max(0,fc.reg.r2)),s:'R² de la tendencia · error típico '+fMk(fc.err)},
+      {l:'Mejor día de la semana',ic:'📅',v:DIAS[+Object.entries(fc.factor).sort((a,b)=>b[1]-a[1])[0][0]],s:'según la estacionalidad aprendida'}
+    ]));
+    const c1=chartBox('Ventas reales y pronóstico','Últimos 60 días + próximos 14 · la banda es el rango probable (80%)',320);
+    view.appendChild(c1.card);
+    const hist=serie.slice(-60);
+    const labels=[...hist.map(x=>fDate(x.f)),...fc.puntos.map(x=>fDate(x.f))];
+    setTimeout(()=>lineChart(c1,labels,[
+      {label:'Real',data:[...hist.map(x=>x.v),...fc.puntos.map(()=>null)],color:PAL[0]},
+      {label:'Pronóstico',data:[...hist.map(()=>null).slice(0,-1),hist[hist.length-1].v,...fc.puntos.map(x=>x.v)],color:PAL[3]},
+      {label:'Máximo probable',data:[...hist.map(()=>null),...fc.puntos.map(x=>x.hi)],color:PAL[4]},
+      {label:'Mínimo probable',data:[...hist.map(()=>null),...fc.puntos.map(x=>x.lo)],color:PAL[2]}
+    ]),0);
+    const c2=chartBox('Estacionalidad semanal aprendida','Cuánto rinde cada día contra el promedio');
+    view.appendChild(c2.card);
+    const ordenDias=[1,2,3,4,5,6,0];
+    setTimeout(()=>barChart(c2,ordenDias.map(d=>DIAS[d]),[{label:'Factor',data:ordenDias.map(d=>fc.factor[d]),
+      colors:ordenDias.map(d=>fc.factor[d]>=1?PAL[2]:PAL[1])}],{money:false,fmt:v=>nf2.format(v)+'x',tick:v=>nf1.format(v)+'x'}),0);
+    view.appendChild(dataTable({id:'sug_fc',title:'Pronóstico día por día',search:false,
+      cols:[{k:'fecha',l:'Fecha',t:'date'},{k:'dia',l:'Día'},{k:'v',l:'Ingresos previstos',t:'money',total:'sum'},
+        {k:'lo',l:'Mínimo probable',t:'money',total:'sum'},{k:'hi',l:'Máximo probable',t:'money',total:'sum'},{k:'u',l:'Unidades previstas',t:'num',total:'sum'}],
+      rows:fc.puntos.map((x,i)=>({fecha:x.f,dia:DIAS[isoToDate(x.f).getDay()],v:x.v,lo:x.lo,hi:x.hi,u:fcU.puntos[i].v})),
+      sort:{k:'fecha',dir:'asc'},totals:true,csvName:'pronostico'}));
+  }
+
+  /* ---------- 2. SEGMENTOS (k-means) ---------- */
+  let segmentos=null;
+  if(activas.length>=20){
+    const base=activas.filter(x=>x.precio>0);
+    const feats=base.map(x=>[Math.log10(1+x.visitas),x.conv*10,Math.log10(1+x.precio),Math.log10(1+x.unidades)]);
+    const cols=[0,1,2,3].map(j=>({m:media(feats.map(f=>f[j])),s:desvio(feats.map(f=>f[j]))||1}));
+    const norm4=feats.map(f=>f.map((v,j)=>(v-cols[j].m)/cols[j].s));
+    const asign=kmeans(norm4,4,40);
+    const grupos=[0,1,2,3].map(j=>{
+      const g=base.filter((_,i)=>asign[i]===j);
+      if(!g.length) return null;
+      const vis=media(g.map(x=>x.visitas)), cv=media(g.map(x=>x.conv)), pr=media(g.map(x=>x.precio)), un=media(g.map(x=>x.unidades));
+      const visRef=media(base.map(x=>x.visitas)), cvRef=media(base.map(x=>x.conv));
+      let nombre,accion,lvl;
+      if(vis>=visRef&&cv>=cvRef){ nombre='Motores del catálogo'; accion='Son las que sostienen la facturación: nunca deben quedarse sin stock y son las primeras candidatas a pauta.'; lvl='good'; }
+      else if(vis>=visRef&&cv<cvRef){ nombre='Mucho tráfico, poca conversión'; accion='Entra gente y no compra. Revisar precio contra la competencia, fotos, tabla de medidas y costo de envío.'; lvl='crit'; }
+      else if(vis<visRef&&cv>=cvRef){ nombre='Joyas escondidas'; accion='Convierten muy bien pero casi nadie las ve. Es el mejor lugar para invertir en Product Ads y mejorar título y atributos.'; lvl='warn'; }
+      else { nombre='De baja rotación'; accion='Poco tráfico y poca conversión. Evaluar combos, promociones o directamente sacarlas del catálogo activo.'; lvl='neutral'; }
+      return {j,nombre,accion,lvl,n:g.length,vis,cv,pr,un,fact:sum(g,x=>x.facturacion),items:g};
+    }).filter(Boolean).sort((a,b)=>b.fact-a.fact);
+    segmentos=grupos;
+  }
+
+  if(tabs.cur==='seg'){
+    if(!segmentos){ view.appendChild(card(null,null,'<div class="empty">Necesito al menos 20 publicaciones activas con precio para armar los grupos.</div>')); return view; }
+    const g=el('div','grid g2');
+    segmentos.forEach(s=>{
+      const c=card(null,null,`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="pill ${s.lvl==='good'?'p-good':s.lvl==='crit'?'p-crit':s.lvl==='warn'?'p-warn':'p-neutral'}">${esc(s.nombre)}</span>
+          <b>${fN(s.n)} publicaciones</b></div>
+        <div style="font-size:12.5px;color:var(--ink2);margin-bottom:8px">${esc(s.accion)}</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px">
+          <span><b>${fNk(s.vis)}</b><br><span style="color:var(--muted)">visitas prom.</span></span>
+          <span><b>${fP(s.cv)}</b><br><span style="color:var(--muted)">conversión</span></span>
+          <span><b>${fM(s.pr)}</b><br><span style="color:var(--muted)">precio prom.</span></span>
+          <span><b>${fN(s.un)}</b><br><span style="color:var(--muted)">unidades prom.</span></span>
+          <span><b>${fMk(s.fact)}</b><br><span style="color:var(--muted)">facturación</span></span>
+        </div>`);
+      g.appendChild(c);
+    });
+    view.appendChild(g);
+    const c3=chartBox('Mapa del catálogo','Cada punto es una publicación, agrupada por comportamiento',320);
+    view.appendChild(c3.card);
+    setTimeout(()=>scatterChart(c3,segmentos.slice(0,3).map((s,i)=>({
+      label:s.nombre,color:PAL[i],data:s.items.filter(x=>x.visitas>0).map(x=>({x:x.visitas,y:x.conv,n:x.titulo.slice(0,40)}))
+    })),{xl:'Visitas',yl:'Conversión',yfmt:fP}),0);
+    view.appendChild(dataTable({id:'sug_seg',title:'Publicaciones por segmento',
+      filters:[{k:'segmento',label:'Segmento',options:segmentos.map(s=>s.nombre)}],
+      cols:[{k:'segmento',l:'Segmento',t:'pill',render:r=>`<span class="pill ${r.lvl==='good'?'p-good':r.lvl==='crit'?'p-crit':r.lvl==='warn'?'p-warn':'p-neutral'}">${esc(r.segmento)}</span>`},
+        {k:'mlaL',l:'MLA'},{k:'titulo',l:'Publicación'},{k:'categoria',l:'Categoría'},{k:'precio',l:'Precio',t:'money'},
+        {k:'visitas',l:'Visitas',t:'num',total:'sum'},{k:'conv',l:'Conversión',t:'pct'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},
+        {k:'facturacion',l:'Facturación',t:'money',total:'sum'}],
+      rows:segmentos.flatMap(s=>s.items.map(x=>({...x,segmento:s.nombre,lvl:s.lvl}))),
+      sort:{k:'facturacion',dir:'desc'},totals:true,searchKeys:['titulo','mla','categoria'],csvName:'segmentos'}));
+  }
+
+  /* ---------- 3. ANOMALÍAS ---------- */
+  if(tabs.cur==='anom'){
+    const anomalias=[];
+    if(serie.length>=14){
+      const xs=serie.map((_,i)=>i), ys=serie.map(x=>x.v);
+      const reg=regresion(xs,ys);
+      const resid=ys.map((y,i)=>y-(reg.a+reg.b*i));
+      const sd=desvio(resid)||1;
+      serie.forEach((s,i)=>{ const z=resid[i]/sd;
+        if(Math.abs(z)>=2) anomalias.push({fecha:s.f,tipo:'Ventas',valor:s.v,esperado:reg.a+reg.b*i,z,
+          detalle:`${z>0?'Vendiste bastante más':'Vendiste bastante menos'} de lo esperado para ese día`}); });
+    }
+    const ads=adsUnificado();
+    if(ads.length){
+      const porDia=Array.from(sumBy(ads,x=>x.fecha,['inversion','ingresos']).values()).sort((a,b)=>a._k<b._k?-1:1);
+      const roas=porDia.filter(x=>x.inversion>0).map(x=>({f:x._k,v:div(x.ingresos,x.inversion),inv:x.inversion}));
+      const m=media(roas.map(x=>x.v)), sd=desvio(roas.map(x=>x.v))||1;
+      roas.forEach(x=>{ const z=(x.v-m)/sd;
+        if(Math.abs(z)>=2) anomalias.push({fecha:x.f,tipo:'ROAS de pauta',valor:x.v,esperado:m,z,
+          detalle:`ROAS de ${fX(x.v)} contra un promedio de ${fX(m)} · invertiste ${fMk(x.inv)} ese día`}); });
+    }
+    if(C.length){
+      const porDia=Array.from(groupBy(C.filter(x=>x.fecha),x=>x.fecha)).map(([f,v])=>({f,v:v.length}));
+      const m=media(porDia.map(x=>x.v)), sd=desvio(porDia.map(x=>x.v))||1;
+      porDia.forEach(x=>{ const z=(x.v-m)/sd;
+        if(z>=2.5) anomalias.push({fecha:x.f,tipo:'Postventa',valor:x.v,esperado:m,z,
+          detalle:`${x.v} casos en un día contra un promedio de ${nf1.format(m)}`}); });
+    }
+    anomalias.sort((a,b)=>Math.abs(b.z)-Math.abs(a.z));
+    view.appendChild(kpiRow([
+      {l:'Días atípicos detectados',ic:'🔍',v:fN(anomalias.length),s:'se apartan más de 2 desvíos de lo normal',hl:true},
+      {l:'Picos positivos',ic:'📈',v:fN(anomalias.filter(x=>x.z>0&&x.tipo==='Ventas').length),s:'ventas muy por encima'},
+      {l:'Caídas',ic:'📉',v:fN(anomalias.filter(x=>x.z<0&&x.tipo==='Ventas').length),s:'ventas muy por debajo',inv:true},
+      {l:'Alertas de pauta',ic:'📣',v:fN(anomalias.filter(x=>x.tipo==='ROAS de pauta').length),inv:true}
+    ]));
+    if(!anomalias.length) view.appendChild(card('Sin anomalías',null,alertBox([])));
+    else view.appendChild(dataTable({id:'sug_anom',title:'Días fuera de lo normal',
+      sub:'Ordenados por cuánto se apartan de lo esperado. Sirve para entender qué pasó ese día y repetirlo o evitarlo.',
+      cols:[{k:'fecha',l:'Fecha',t:'date'},{k:'dia',l:'Día'},{k:'tipo',l:'Indicador'},
+        {k:'valorL',l:'Valor real'},{k:'espL',l:'Esperado'},
+        {k:'z',l:'Desvíos',t:'num2',render:r=>`<span class="pill ${Math.abs(r.z)>=3?'p-crit':'p-warn'}">${r.z>0?'+':''}${nf1.format(r.z)}σ</span>`},
+        {k:'detalle',l:'Qué pasó'}],
+      rows:anomalias.map(x=>({...x,dia:DIAS[isoToDate(x.fecha).getDay()],
+        valorL:x.tipo==='Ventas'?fMk(x.valor):x.tipo==='ROAS de pauta'?fX(x.valor):fN(x.valor),
+        espL:x.tipo==='Ventas'?fMk(x.esperado):x.tipo==='ROAS de pauta'?fX(x.esperado):nf1.format(x.esperado)})),
+      sort:{k:'fecha',dir:'desc'},searchKeys:['tipo','detalle'],csvName:'anomalias'}));
+  }
+
+  /* ---------- 4. PRECIO Y CONVERSIÓN ---------- */
+  if(tabs.cur==='precio'){
+    if(activas.length<20){ view.appendChild(card(null,null,'<div class="empty">Necesito más publicaciones activas para analizar precios.</div>')); return view; }
+    const porCat=Array.from(groupBy(activas.filter(x=>x.precio>0&&x.visitas>=100),x=>x.categoria))
+      .filter(([k,v])=>v.length>=5)
+      .map(([k,v])=>{
+        const r=pearson(v.map(x=>Math.log10(x.precio)),v.map(x=>x.conv));
+        const convMed=median(v.map(x=>x.conv));
+        return {categoria:k,n:v.length,r,precioMed:median(v.map(x=>x.precio)),convMed,
+          lectura: r<=-0.35? 'El precio pesa: los más baratos convierten mejor'
+                 : r>=0.35? 'Acá el precio alto no frena: se compra por calidad percibida'
+                 : 'El precio no explica la conversión: el problema o la ventaja está en otro lado'};
+      }).sort((a,b)=>a.r-b.r);
+    view.appendChild(card('Cuánto influye el precio en cada categoría',
+      'Correlación entre precio y conversión de tus publicaciones activas con tráfico. Cerca de −1: bajar precio ayuda. Cerca de 0: el precio no es el problema.',
+      null));
+    const c=chartBox(null,null,Math.max(220,porCat.length*24));
+    view.appendChild(c.card);
+    setTimeout(()=>barChart(c,porCat.map(x=>x.categoria.slice(0,34)),[{label:'Correlación precio-conversión',data:porCat.map(x=>x.r),
+      colors:porCat.map(x=>x.r<=-0.35?ST.crit:x.r>=0.35?ST.good:'#898781')}],{horizontal:true,money:false,fmt:v=>nf2.format(v),tick:v=>nf1.format(v),thick:16}),0);
+    view.appendChild(dataTable({id:'sug_precio',title:'Lectura por categoría',search:false,
+      cols:[{k:'categoria',l:'Categoría'},{k:'n',l:'Publicaciones',t:'num'},{k:'precioMed',l:'Precio mediano',t:'money'},
+        {k:'convMed',l:'Conversión mediana',t:'pct'},{k:'r',l:'Correlación',t:'num2'},{k:'lectura',l:'Qué significa'}],
+      rows:porCat,sort:{k:'r',dir:'asc'},csvName:'precio_conversion'}));
+
+    /* publicaciones caras dentro de su categoría y con baja conversión */
+    const sugPrecio=[];
+    Array.from(groupBy(activas.filter(x=>x.precio>0),x=>x.categoria)).forEach(([k,v])=>{
+      if(v.length<5) return;
+      const pMed=median(v.map(x=>x.precio)), cMed=median(v.map(x=>x.conv));
+      v.forEach(x=>{ if(x.precio>pMed*1.25&&x.conv<cMed*0.7&&x.visitas>=300)
+        sugPrecio.push({...x,pMed,cMed,gap:div(x.precio,pMed)-1,
+          potencial:(cMed-x.conv)*x.visitas*x.precio}); });
+    });
+    sugPrecio.sort((a,b)=>b.potencial-a.potencial);
+    if(sugPrecio.length) view.appendChild(dataTable({id:'sug_precio2',title:'Candidatas a revisar precio',
+      sub:'Están más de 25% por encima de la mediana de su categoría y convierten bastante menos, con tráfico suficiente para que el dato sea confiable',
+      cols:[{k:'mlaL',l:'MLA'},{k:'titulo',l:'Publicación'},{k:'categoria',l:'Categoría'},{k:'precio',l:'Precio',t:'money'},
+        {k:'pMed',l:'Mediana categoría',t:'money'},{k:'gap',l:'Sobreprecio',t:'pct'},
+        {k:'conv',l:'Su conversión',t:'pct'},{k:'cMed',l:'Conversión típica',t:'pct'},{k:'visitas',l:'Visitas',t:'num'},
+        {k:'potencial',l:'Facturación en juego',t:'money',total:'sum'}],
+      rows:sugPrecio,sort:{k:'potencial',dir:'desc'},totals:true,searchKeys:['titulo','categoria'],csvName:'revisar_precio'}));
+  }
+
+  /* ---------- 5. PLAN DE ACCIÓN PRIORIZADO ---------- */
+  if(tabs.cur==='plan'){
+    const acciones=[];
+    /* a) potencial no aprovechado por conversión debajo de su categoría */
+    const catConv=new Map();
+    Array.from(groupBy(activas.filter(x=>x.visitas>=100),x=>x.categoria)).forEach(([k,v])=>{ if(v.length>=4) catConv.set(k,median(v.map(x=>x.conv))); });
+    activas.forEach(x=>{
+      const ref=catConv.get(x.categoria); if(!ref||x.visitas<300) return;
+      const brecha=ref-x.conv; if(brecha<=0.005) return;
+      /* tope prudente: como mucho recuperar lo que ya factura hoy */
+      const pot=Math.min(brecha*x.visitas*x.precio, Math.max(x.facturacion,brecha*x.visitas*x.precio*0.3));
+      acciones.push({tipo:'Conversión',prioridad:pot,titulo:x.titulo,mla:x.mlaL,
+        que:`Convierte ${fP(x.conv)} contra ${fP(ref)} típico de ${x.categoria}`,
+        como:'Comparar precio y fotos con las que lideran la categoría, completar ficha técnica y medidas',
+        impacto:pot});
+    });
+    /* b) publicaciones que convierten bien y tienen poco tráfico → pauta */
+    const visMed=median(activas.map(x=>x.visitas));
+    activas.forEach(x=>{
+      if(x.conv>=0.06&&x.visitas<visMed&&x.precio>0){
+        const pot=Math.min(x.conv*(visMed-x.visitas)*x.precio, Math.max(x.facturacion*2,50000));
+        acciones.push({tipo:'Tráfico',prioridad:pot,titulo:x.titulo,mla:x.mlaL,
+          que:`Convierte ${fP(x.conv)} con sólo ${fN(x.visitas)} visitas`,
+          como:'Sumarla a Product Ads o mejorar título y atributos: ya sabemos que cuando la ven, compran',
+          impacto:pot});
+      }
+    });
+    /* c) quiebres y stock crítico según el reporte de planificación de Full */
+    const F=rowsOf('full_plan');
+    if(F.length){
+      F.filter(x=>/sin stock|crítico|critico/i.test(x.nivel)&&num(x.ventas30)>0)
+       .forEach(x=>{
+         const sinStock=/sin stock/i.test(x.nivel);
+         acciones.push({tipo:'Stock',prioridad:num(x.ventas30)*(sinStock?1:0.5),
+           titulo:x.producto,mla:x.mla?'MLA'+x.mla:'',
+           que:`${sinStock?'Sin stock en Full':'Stock crítico en Full ('+fN(x.aptas)+' unidades)'} y facturó ${fMk(x.ventas30)} en 30 días`,
+           como:`Enviar ${fN(x.sugeridas)} unidades${x.limite?` antes del ${x.limite}`:''} — es la cantidad que sugiere Mercado Libre${x.clasificacion==='Estrella'?'; además es producto Estrella':''}`,
+           impacto:num(x.ventas30)*(sinStock?0.5:0.2)});
+       });
+    } else {
+      const S=rowsOf('stock');
+      if(S.length){
+        const stockMap=new Map(); S.forEach(x=>{ const k=mlaKey(x.mla); stockMap.set(k,(stockMap.get(k)||0)+num(x.stock_full)+num(x.stock_flex)); });
+        pubs.forEach(x=>{ const st=stockMap.get(x.mla);
+          if(st!=null&&st<=0&&x.unidades>0)
+            acciones.push({tipo:'Stock',prioridad:x.facturacion,titulo:x.titulo,mla:x.mlaL,
+              que:`Sin stock y venía vendiendo ${fN(x.unidades)} unidades`,
+              como:'Reponer urgente: además de la venta perdida, ML castiga el posicionamiento',
+              impacto:div(x.facturacion,30)*14});
+        });
+      }
+    }
+    /* d) fricción detectada en las preguntas */
+    if(Q.length){
+      const porPub=Array.from(groupBy(Q,x=>x.titulo||x.mla));
+      porPub.forEach(([k,v])=>{
+        if(v.length>=15&&div(v.filter(x=>x.compra).length,v.length)<0.05){
+          const p=pubs.find(y=>y.titulo===k);
+          acciones.push({tipo:'Preguntas',prioridad:(p?p.facturacion*0.15:v.length*1000),titulo:k,mla:p?p.mlaL:'',
+            que:`${v.length} preguntas y casi ninguna termina en venta`,
+            como:'La ficha no está respondiendo lo que la gente necesita: sumar tabla de medidas, fotos de detalle y aclarar compatibilidad',
+            impacto:p?p.facturacion*0.15:0});
+        }
+      });
+    }
+    /* e) campañas con ROAS pobre */
+    const ads=adsUnificado();
+    if(ads.length){
+      const camp=Array.from(sumBy(ads.filter(x=>x.campana),x=>x.campana,['inversion','ingresos']).values());
+      camp.forEach(x=>{ const roas=div(x.ingresos,x.inversion);
+        if(x.inversion>50000&&roas<2)
+          acciones.push({tipo:'Pauta',prioridad:x.inversion,titulo:x._k,mla:'',
+            que:`ROAS ${fX(roas)} con ${fMk(x.inversion)} invertidos`,
+            como:'Bajar presupuesto o pausar hasta revisar la publicación de destino',
+            impacto:x.inversion*0.5});
+      });
+    }
+    acciones.sort((a,b)=>b.prioridad-a.prioridad);
+    const impactoTotal=sum(acciones,x=>x.impacto);
+    view.appendChild(kpiRow([
+      {l:'Acciones sugeridas',ic:'🧠',v:fN(acciones.length),s:'ordenadas por impacto estimado',hl:true},
+      {l:'Facturación en juego',ic:'💰',v:fMk(impactoTotal),s:'estimación prudente, acotada por lo que ya factura cada publicación'},
+      {l:'De conversión',ic:'🛒',v:fN(acciones.filter(x=>x.tipo==='Conversión').length)},
+      {l:'De tráfico',ic:'📣',v:fN(acciones.filter(x=>x.tipo==='Tráfico').length)},
+      {l:'De stock',ic:'📦',v:fN(acciones.filter(x=>x.tipo==='Stock').length),inv:true},
+      {l:'De atención',ic:'💬',v:fN(acciones.filter(x=>x.tipo==='Preguntas').length),inv:true}
+    ]));
+    if(!acciones.length){ view.appendChild(card('Sin sugerencias',null,alertBox([]))); return view; }
+    view.appendChild(card('Las 5 primeras','Por dónde empezar esta semana',
+      alertBox(acciones.slice(0,5).map(x=>({lvl:x.tipo==='Stock'?'crit':'warn',
+        t:`${x.titulo.slice(0,70)} — ${x.que}`,
+        d:`${x.como}. Impacto estimado: <b>${fMk(x.impacto)}</b>`})))));
+    view.appendChild(dataTable({id:'sug_plan',title:'Todas las sugerencias',
+      filters:[{k:'tipo',label:'Tipo',options:['Conversión','Tráfico','Stock','Preguntas','Pauta']}],
+      cols:[{k:'tipo',l:'Tipo',t:'pill',render:r=>`<span class="pill ${r.tipo==='Stock'?'p-crit':r.tipo==='Pauta'?'p-warn':'p-info'}">${esc(r.tipo)}</span>`},
+        {k:'titulo',l:'Publicación / campaña'},{k:'mla',l:'MLA'},{k:'que',l:'Qué detecté'},{k:'como',l:'Qué hacer'},
+        {k:'impacto',l:'Impacto estimado',t:'money',total:'sum'}],
+      rows:acciones,sort:{k:'impacto',dir:'desc'},totals:true,searchKeys:['titulo','que','como','tipo'],csvName:'sugerencias'}));
+  }
+  return view;
+}
+/* =========================================================================
    APP · navegación, sincronización y arranque
    ========================================================================= */
 const VIEWS={resumen:viewResumen,atencion:viewAtencion,marketing:viewMarketing,catalogo:viewCatalogo,
-             comercial:viewComercial,logistica:viewLogistica,negocio:viewNegocio};
+             comercial:viewComercial,logistica:viewLogistica,negocio:viewNegocio,sugerencias:viewSugerencias};
 
 function renderNav(){
   const nav=$('#nav'); nav.innerHTML='';
   SECTORES.forEach(s=>{
     const filas=s.datasets.reduce((a,k)=>a+rowsOf(k).length,0);
-    const b=el('button',(UI.sector===s.id?'active':'')+(filas?'':' empty'),
-      `<span class="ic">${s.ic}</span>${esc(s.nom)}<span class="badge">${filas?fNk(filas):'0'}</span>`);
+    const b=el('button',(UI.sector===s.id?'active':'')+(s.derivado||filas?'':' empty'),
+      `<span class="ic">${s.ic}</span>${esc(s.nom)}`+(s.derivado?'':`<span class="badge">${filas?fNk(filas):'0'}</span>`));
     b.onclick=()=>{ UI.sector=s.id; location.hash=s.id; render(); window.scrollTo({top:0,behavior:'smooth'}); };
     nav.appendChild(b);
   });
@@ -2624,9 +3285,10 @@ function dlgGuia(){
     ['💬 Atención al Cliente','<b>Resultados ML.xlsx</b>: “Base de preguntas” y “Base de Cancelaciones + Reclamos”','Volumen de preguntas, horarios, tiempo de respuesta, motivos y casos de postventa'],
     ['📣 Marketing','<b>Seguimiento de Pauta.xlsx</b> (hoja “Datos”), <b>Perfo Campañas.xlsx</b> (“Datos DSP Diario” y “PADS”) y la hoja “Datos” de Resultados ML','Inversión, ROAS, ACOS y alertas por campaña; las tres fuentes se unifican sin duplicar'],
     ['🏷️ Catálogo','<b>Análisis de Publicaciones.xlsx</b>: “Publicaciones GH” y “Publicaciones con Ventas GH”','Visitas, conversión, precio y oportunidades concretas por publicación'],
-    ['💰 Comercial','La <b>plantilla comercial</b> que se descarga desde ese sector','Rotación, días de cobertura, margen real por producto, promociones y clasificación ABC'],
-    ['📦 Logística','El export de <b>Publicaciones</b> de Mercado Libre (trae Full y depósito) o la plantilla de stock','Stock Full vs. Flex, quiebres, cobertura y sugerencia de reposición'],
-    ['🔍 Análisis de Negocio','<b>Análisis de Publicaciones.xlsx</b>: hojas del competidor (DB)','Comparación de ingresos, unidades, ticket y rubros contra la competencia']
+    ['💰 Comercial','El Excel de <b>costos por producto</b> (SKU, MLA, IVA%, Costo s/IVA, Costo c/IVA). Opcional: la plantilla comercial para stock y promociones','Margen real por publicación (precio real de venta − retención de ML − costo c/IVA), rotación, promociones y clasificación ABC'],
+    ['📦 Logística','El <b>Reporte de Planificación</b> de Full (stock, en camino y sugerencia de ML). Sumá el export de <b>Publicaciones</b> si querés ver también el depósito propio de Flex','Stock en Full, nivel por producto, días de cobertura, facturación en riesgo y la lista de qué enviar a Full con volumen y fecha límite'],
+    ['🔍 Análisis de Negocio','<b>Análisis de Publicaciones.xlsx</b>: hojas del competidor (DB)','Comparación de ingresos, unidades, ticket y rubros contra la competencia'],
+    ['🧠 Sugerencias','No necesita archivo propio: usa todo lo que ya cargaron los demás sectores','Pronóstico de ventas, segmentación del catálogo, días fuera de lo normal y un plan de acción ordenado por impacto en pesos']
   ];
   dialog('Cómo se usa',
     `<p style="margin-top:0">Cada sector se actualiza cargando su Excel con el botón amarillo <b>Cargar Excel</b>. Podés arrastrar varios archivos juntos: la app mira todas las hojas, te dice qué reconoció y vos confirmás.</p>
