@@ -2344,29 +2344,54 @@ function filasComerciales(){
   const ret=retencionML(), costos=mapaCostos();
   const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(mlaKey(x.mla),x));
   const planilla=new Map(); C.forEach(x=>planilla.set(mlaKey(x.mla)||x.sku,x));
-  const stockMap=stockPorMLA();   /* Full (reporte de planificación) + depósito propio */
+  const stockMap=stockPorMLA();   /* mismo stock que muestra Logística: Full + depósito + en camino */
+  /* nivel y venta de los últimos 30 días por publicación, del Reporte de Planificación */
+  const ORDEN_NIVEL=['Sin stock','Crítico','Bajo','Medio','Suficiente'];
+  const planMLA=new Map();
+  rowsOf('full_plan').forEach(f=>{ (f.mlas||f.mla||'').split(',').filter(Boolean).forEach(k=>{
+    const o=planMLA.get(k)||{unidades30:0,ventas30:0,nivel:'',sugeridas:0,limite:'',skus:0,skusSin:0};
+    o.unidades30+=num(f.unidades30); o.ventas30+=num(f.ventas30); o.sugeridas+=num(f.sugeridas);
+    o.skus++; if(/sin stock/i.test(f.nivel)) o.skusSin++;
+    if(!o.limite&&f.limite) o.limite=f.limite;
+    const i=ORDEN_NIVEL.indexOf(f.nivel), j=ORDEN_NIVEL.indexOf(o.nivel);
+    if(i>=0&&(j<0||i<j)) o.nivel=f.nivel;      /* se queda con el peor nivel de sus SKU */
+    planMLA.set(k,o); }); });
 
   const universo = P.length? P.map(x=>({mla:mlaKey(x.mla),titulo:x.titulo,categoria:x.categoria,precio:num(x.precio),
         estado:x.estado,promo:!!x.promo,visitas:num(x.visitas),histor:num(x.unidades)}))
     : PV.map(x=>({mla:mlaKey(x.mla),titulo:x.titulo,categoria:'Sin categoría',precio:div(x.facturacion,x.unidades),
         estado:'',promo:false,visitas:0,histor:num(x.unidades)}));
+  /* publicaciones que aparecen en el stock pero no en el archivo de catálogo: si no, su stock se perdería */
+  const yaEsta=new Set(universo.map(x=>x.mla));
+  stockPublicaciones().mapa.forEach((v,k)=>{
+    if(yaEsta.has(k)) return;
+    universo.push({mla:k,titulo:v.titulo||('MLA'+k),categoria:'Sin categoría',precio:num(v.precio),
+      estado:'',promo:false,visitas:0,histor:0,soloStock:true});
+  });
 
   return universo.map(x=>{
     const v=ventasMap.get(x.mla)||{}, pl=planilla.get(x.mla)||{}, st=stockMap.get(x.mla), co=costos.get(x.mla);
+    const fp=planMLA.get(x.mla)||{};
     const lista = num(pl.precio)||x.precio||div(v.facturacion,v.unidades);
     /* El precio REAL al que se vendió (facturación ÷ unidades) suele estar por debajo del de lista
        por promociones y cuotas; el margen se calcula sobre ese, no sobre el cartel. */
     const precioReal = v.unidades? div(v.facturacion,v.unidades) : lista;
     const precio = precioReal;
     const costo  = num(pl.costo)||(co?co.costoConIva:0);          /* costo con IVA, como en tu Excel de productos */
-    const stock  = num(pl.stock)||(st?st.full+st.flex:0);
+    const stockFull=st?num(st.full):0, stockFlex=st?num(st.flex):0, camino=st?num(st.camino):0;
+    const stock  = num(pl.stock)||(stockFull+stockFlex);
     const vendidos = num(v.unidades)||num(pl.vendidos)||0;
+    const vend30 = num(fp.unidades30)||vendidos;   /* la misma base que usa Logística para la cobertura */
     const facturacion = num(v.facturacion)||precio*vendidos;
     const retencion = pl.comision!=null&&pl.comision>0? pl.comision : ret.tasa;
     const neto = precio*(1-retencion) - num(pl.envio||0);
     const margenU = costo? neto-costo : null;
-    const vDia=div(vendidos,30);
-    return {mla:x.mla, mlaL:'MLA'+x.mla, sku:(co&&co.skus[0])||pl.sku||'', producto:x.titulo, lista,
+    const vDia=div(vend30,30);
+    return {mla:x.mla, mlaL:'MLA'+x.mla,
+      stockFull, stockFlex, camino, stockTotal:stockFull+stockFlex,
+      donde: stockFull>0&&stockFlex>0?'Full + depósito':stockFull>0?'Sólo Full':stockFlex>0?'Sólo depósito':'Sin stock',
+      nivel:fp.nivel||'', skus:num(fp.skus), skusSin:num(fp.skusSin),
+      sugeridas:num(fp.sugeridas), limite:fp.limite||'', vend30, sku:(co&&co.skus[0])||pl.sku||'', producto:x.titulo, lista,
       brechaPrecio: lista? div(precioReal,lista)-1 : 0,
       categoria:x.categoria||'Sin categoría', estado:x.estado, promo:!!(pl.promo||x.promo), promoL:(pl.promo||x.promo)?'Sí':'No',
       desc:num(pl.desc), desde:pl.desde||'', hasta:pl.hasta||'',
@@ -2375,7 +2400,7 @@ function filasComerciales(){
       margenTotal: margenU==null?null:margenU*vendidos,
       capital: costo? stock*costo : null,
       vDia, dias: vDia&&stock? stock/vDia : null, rot:div(vendidos,stock||1),
-      sinCosto: !costo, variantes: co?co.variantes:0};
+      sinCosto: !costo, soloStock:!!x.soloStock, variantes: co?co.variantes:0};
   });
 }
 
@@ -2405,12 +2430,13 @@ function viewComercial(){
 
   const margenTot=sum(conCosto,x=>x.margenTotal), factCosto=sum(conCosto,x=>x.facturacion);
   view.appendChild(kpiRow([
-    {l:'Publicaciones',ic:'🏷️',v:fN(rows.length),s:`${fN(conCosto.length)} con costo cargado`,hl:true},
+    {l:'Publicaciones',ic:'🏷️',v:fN(rows.length),s:`${fN(conCosto.length)} con costo cargado${rows.filter(x=>x.soloStock).length?` · ${fN(rows.filter(x=>x.soloStock).length)} sólo con stock`:''}`,hl:true},
     CO.length?{l:'Margen promedio',ic:'📈',v:fP(div(margenTot,factCosto)),s:'ponderado por facturación'}:null,
     CO.length?{l:'Margen del período',ic:'💰',v:fMk(margenTot),s:`sobre ${fMk(factCosto)} facturados`}:null,
     CO.length?{l:'Retención de ML',ic:'🏦',v:fP(ret.tasa),s:ret.real?'calculada con tus ventas reales':'valor por defecto',inv:true}:null,
     CO.length&&haySt?{l:'Capital inmovilizado',ic:'🏦',v:fMk(sum(conCosto,x=>x.capital)),s:'stock × costo c/IVA',inv:true}:null,
     CO.length?{l:'Con margen negativo',ic:'🚨',v:fN(conCosto.filter(x=>x.margenU<0).length),s:'venden a pérdida',inv:true}:null,
+    haySt?{l:'En Full',ic:'🏭',v:fN(sum(rows,x=>x.stockFull)),s:`${fN(sum(rows,x=>x.stockFlex))} en tu depósito · ${fN(sum(rows,x=>x.camino))} en camino`}:null,
     haySt?{l:'Quiebres de stock',ic:'📦',v:fN(rows.filter(x=>x.stock<=0&&x.vendidos>0).length),s:'venden y están en cero',inv:true}:null,
     {l:'Sin costo cargado',ic:'❓',v:fN(rows.length-conCosto.length),s:'no entran en el cálculo de margen',inv:true}
   ]));
@@ -2439,7 +2465,10 @@ function viewComercial(){
         {k:'margenU',l:'Margen unitario',t:'money'},
         {k:'margenPct',l:'% Margen',t:'pct',render:r=>r.margenPct==null?'—':`<span class="pill ${r.margenPct>=0.25?'p-good':r.margenPct>=0.1?'p-warn':'p-crit'}">${fP(r.margenPct)}</span>`},
         {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
-        {k:'margenTotal',l:'Margen total',t:'money',total:'sum'},{k:'abc',l:'ABC'}],
+        {k:'margenTotal',l:'Margen total',t:'money',total:'sum'},
+        {k:'stockFull',l:'En Full',t:'num',total:'sum'},{k:'stockFlex',l:'En mi depósito',t:'num',total:'sum'},
+        {k:'stock',l:'Stock total',t:'num',total:'sum'},{k:'capital',l:'Capital inmovilizado',t:'money',total:'sum'},
+        {k:'abc',l:'ABC'}],
       rows:conCosto,sort:{k:'margenTotal',dir:'desc'},totals:true,
       searchKeys:['producto','sku','mla','categoria'],csvName:'margen_por_publicacion'}));
     const neg=conCosto.filter(x=>x.margenU<0).sort((a,b)=>a.margenU-b.margenU);
@@ -2459,10 +2488,21 @@ function viewComercial(){
     }
     view.appendChild(dataTable({id:'com_rot',title:'Rotación de stock',sub:'Ordená por días de cobertura para ver qué reponer primero',
       filters:[{k:'categoria',label:'Categoría',options:Array.from(new Set(rows.map(x=>x.categoria))).filter(Boolean).sort()},
-               {k:'abc',label:'Clase',options:['A','B','C']}],
+               {k:'abc',label:'Clase',options:['A','B','C']},
+               {k:'donde',label:'Stock',options:['Full + depósito','Sólo Full','Sólo depósito','Sin stock']},
+               {k:'nivel',label:'Nivel en Full',options:['Sin stock','Crítico','Bajo','Medio','Suficiente']}],
       cols:[{k:'producto',l:'Producto'},{k:'mlaL',l:'MLA'},{k:'categoria',l:'Categoría'},
         {k:'abc',l:'ABC',t:'pill',render:r=>`<span class="pill ${r.abc==='A'?'p-good':r.abc==='B'?'p-info':'p-neutral'}">${r.abc}</span>`},
-        {k:'stock',l:'Stock',t:'num',total:'sum'},{k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'vDia',l:'Venta/día',t:'num2'},
+        {k:'stockFull',l:'En Full',t:'num',total:'sum'},{k:'stockFlex',l:'En mi depósito',t:'num',total:'sum'},
+        {k:'camino',l:'En camino',t:'num',total:'sum'},{k:'stock',l:'Stock total',t:'num',total:'sum'},
+        {k:'nivel',l:'Nivel en Full',t:'pill',render:r=>{
+          if(!r.nivel) return '—';
+          /* una publicación puede tener varios SKU: si alguno está en cero pero la publicación
+             todavía tiene stock, se aclara en vez de decir "sin stock" */
+          if(/sin stock/i.test(r.nivel)&&r.stockFull>0&&r.skus>1)
+            return `<span class="pill p-warn">Falta stock en ${fN(r.skusSin)} de ${fN(r.skus)} SKU</span>`;
+          return `<span class="pill ${/sin stock|crítico|critico/i.test(r.nivel)?'p-crit':/bajo|medio/i.test(r.nivel)?'p-warn':'p-good'}">${esc(r.nivel)}</span>`;}},
+        {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'vend30',l:'Vendidos 30d',t:'num',total:'sum'},{k:'vDia',l:'Venta/día',t:'num2'},
         {k:'dias',l:'Días de cobertura',t:'num',render:r=>r.dias==null?'—':`<span class="pill ${r.dias<7?'p-crit':r.dias<14?'p-warn':'p-good'}">${fN(r.dias)} d</span>`},
         {k:'rot',l:'Rotación',t:'num2'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
         {k:'capital',l:'Capital inmovilizado',t:'money',total:'sum'}],
@@ -2488,7 +2528,9 @@ function viewComercial(){
         {k:'desc',l:'% Descuento',t:'pct'},{k:'costo',l:'Costo c/IVA',t:'money'},
         {k:'margenPct',l:'% Margen',t:'pct',render:r=>r.margenPct==null?'—':`<span class="pill ${r.margenPct>=0.2?'p-good':r.margenPct>=0.08?'p-warn':'p-crit'}">${fP(r.margenPct)}</span>`},
         {k:'vendidos',l:'Vendidos',t:'num',total:'sum'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
-        {k:'margenTotal',l:'Margen total',t:'money',total:'sum'},{k:'stock',l:'Stock',t:'num'},
+        {k:'margenTotal',l:'Margen total',t:'money',total:'sum'},
+        {k:'stockFull',l:'En Full',t:'num',total:'sum'},{k:'stockFlex',l:'En mi depósito',t:'num',total:'sum'},
+        {k:'stock',l:'Stock total',t:'num',total:'sum'},
         {k:'desde',l:'Desde',t:'date'},{k:'hasta',l:'Hasta',t:'date'}],
       rows:promos,sort:{k:'facturacion',dir:'desc'},totals:true,searchKeys:['producto','categoria','mla'],csvName:'promociones'}));
   }
@@ -2511,7 +2553,9 @@ function viewComercial(){
     view.appendChild(dataTable({id:'com_abc_det',title:'Detalle ordenado por facturación',
       cols:[{k:'producto',l:'Producto'},{k:'abc',l:'Clase'},{k:'facturacion',l:'Facturación',t:'money',total:'sum'},
         {k:'acum',l:'% Acumulado',t:'pct'},{k:'margenTotal',l:'Margen',t:'money',total:'sum'},
-        {k:'vendidos',l:'Unidades',t:'num',total:'sum'},{k:'stock',l:'Stock',t:'num',total:'sum'},{k:'dias',l:'Días cobertura',t:'num'}],
+        {k:'vendidos',l:'Unidades',t:'num',total:'sum'},
+        {k:'stockFull',l:'En Full',t:'num',total:'sum'},{k:'stockFlex',l:'En mi depósito',t:'num',total:'sum'},
+        {k:'stock',l:'Stock total',t:'num',total:'sum'},{k:'dias',l:'Días cobertura',t:'num'}],
       rows:ordF,sort:{k:'facturacion',dir:'desc'},totals:true,searchKeys:['producto','categoria'],csvName:'abc_detalle'}));
   }
 
