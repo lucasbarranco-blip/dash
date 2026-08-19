@@ -1378,16 +1378,30 @@ function scatterChart(box,groups,opts){
 }
 
 /* ---------------------------- barra de filtros ---------------------------- */
+/* La fecha más nueva de TODOS los datos cargados: el período tiene que ser el mismo en
+   todos los sectores, si no cada pantalla muestra una ventana distinta y los números
+   no se pueden comparar entre sí. */
+function fechaMaxGlobal(){
+  if(UI._fmax!==undefined) return UI._fmax;
+  const tope=k=>{ let mx=null; rowsOf(k).forEach(r=>{ const f=r.fecha; if(f&&(!mx||f>mx)) mx=f; }); return mx; };
+  /* el ancla es la última fecha con VENTAS: es el negocio, y así "30 días" son 30 días de venta.
+     Si todavía no hay ventas cargadas, se usa la fuente más nueva que haya. */
+  let mx=tope('ventas_dia');
+  if(!mx) ['ads_diario','pads_diario','dsp_diario','comp_diario','preguntas','postventa'].forEach(k=>{
+    const t=tope(k); if(t&&(!mx||t>mx)) mx=t; });
+  UI._fmax=mx; return mx;
+}
 function periodRange(rows,getDate){
   const ds=rows.map(getDate).filter(Boolean).sort();
   return ds.length? {min:ds[0],max:ds[ds.length-1]} : {min:null,max:null};
 }
-function currentRange(dataMax){
+function currentRange(){
   const p=UI.period;
   if(p.preset==='custom'&&p.desde&&p.hasta) return {desde:p.desde,hasta:p.hasta};
   if(p.preset==='all') return {desde:null,hasta:null};
   const days={'7d':7,'30d':30,'60d':60,'90d':90}[p.preset]||30;
-  const max=dataMax? isoToDate(dataMax) : new Date();
+  const g=fechaMaxGlobal();
+  const max=g? isoToDate(g) : new Date();
   const from=new Date(max); from.setDate(from.getDate()-(days-1));
   return {desde:iso(from),hasta:iso(max)};
 }
@@ -1402,7 +1416,7 @@ function prevRange(r){
 }
 function filterBar(dataMax,extra){
   const bar=el('div','filters');
-  const r=currentRange(dataMax);
+  const r=currentRange();
   bar.innerHTML=`<span class="lbl">Período</span>`;
   const d1=el('input'); d1.type='date'; d1.value=r.desde||'';
   const d2=el('input'); d2.type='date'; d2.value=r.hasta||'';
@@ -1425,6 +1439,9 @@ function filterBar(dataMax,extra){
       let t; i.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>x.onChange(i.value),320); }; bar.appendChild(i);
     }
   });
+  const g=fechaMaxGlobal();
+  if(g) bar.appendChild(el('span','lbl','Datos hasta '+fDateL(g)));
+  if(dataMax&&g&&dataMax<g) bar.appendChild(el('span','lbl','· en este sector, hasta '+fDateL(dataMax)));
   const cl=el('button','btn sm ghost','✕ Limpiar');
   cl.onclick=()=>{ UI.period={preset:'30d',desde:null,hasta:null}; UI.filters={}; render(); };
   bar.appendChild(el('div','spacer')); bar.appendChild(cl);
@@ -1472,6 +1489,42 @@ function deltaCov(a,b,arrA,arrB,f){
   return delta(a,b);
 }
 
+/* Los bloques de provincia y de productos vienen como acumulado MENSUAL: hay que
+   filtrarlos por el período elegido y avisar cuánto del mes cubren realmente,
+   porque en los reportes de ML a veces llegan cortados (ej: julio hasta el día 23). */
+function mesesDelPeriodo(r){
+  if(!r.desde||!r.hasta) return null;
+  return {ini:r.desde.slice(0,7), fin:r.hasta.slice(0,7)};
+}
+function enMeses(mes,mp){ if(!mp) return true; const m=String(mes||'').slice(0,7); return m>=mp.ini&&m<=mp.fin; }
+function coberturaMensual(rows,campoU){
+  const V=rowsOf('ventas_dia');
+  const porMes=new Map();
+  rows.forEach(x=>{ const m=String(x.mes||'').slice(0,7); if(!m)return; porMes.set(m,(porMes.get(m)||0)+num(x[campoU])); });
+  const out=[];
+  porMes.forEach((u,m)=>{ const real=sum(V.filter(y=>y.fecha.startsWith(m)),y=>y.unidades);
+    out.push({mes:m,u,real,pct:div(u,real)}); });
+  /* meses con ventas pero sin ninguna fila en este bloque */
+  const conVentas=new Set(V.map(x=>x.fecha.slice(0,7)));
+  conVentas.forEach(m=>{ if(!porMes.has(m)) out.push({mes:m,u:0,real:sum(V.filter(y=>y.fecha.startsWith(m)),y=>y.unidades),pct:0}); });
+  return out.sort((a,b)=>a.mes<b.mes?-1:1);
+}
+function avisoCobertura(cob,mp,queEs){
+  const rel=cob.filter(c=>enMeses(c.mes,mp));
+  const flojos=rel.filter(c=>c.pct<0.9&&c.real>0);
+  if(!flojos.length) return null;
+  const txt=flojos.map(c=>c.pct<0.02
+    ? `<b>${MESN[+c.mes.slice(5)-1]}</b> no tiene datos`
+    : `<b>${MESN[+c.mes.slice(5)-1]}</b> cubre ${fP(c.pct,0)} (${fN(c.u)} de ${fN(c.real)} unidades)`).join(' · ');
+  return el('div','note',`⚠️ Este bloque no cubre todo el período elegido: ${txt}. ${queEs} viene como acumulado por mes en tu Excel, así que si el reporte se generó a mitad de mes queda cortado.`);
+}
+
+/* Si una fuente termina antes que el período elegido, el KPI lo aclara en vez de mostrar un número corto sin explicación */
+function hasta(key){ const f=rowsOf(key).map(x=>x.fecha).filter(Boolean).sort(); return f.length? f[f.length-1] : null; }
+function notaCobertura(key,r){
+  const h=hasta(key); if(!h||!r.hasta||h>=r.hasta) return '';
+  return ` · ojo: sólo hay datos hasta el ${fDateL(h)}`;
+}
 function viewResumen(){
   const V=rowsOf('ventas_dia'), P=rowsOf('ventas_provincia'), PR=rowsOf('top_productos');
   const view=el('div');
@@ -1509,9 +1562,9 @@ function viewResumen(){
       ped>0?{l:'Ticket por compra',ic:'🛒',v:fM(ticketC),s:'ingresos ÷ pedidos',d:delta(ticketC,div(pIng,pPed))}:null,
       inv>0?{l:'Inversión en pauta',ic:'📣',v:fMk(inv),s:`${fP(div(inv,ing))} de los ingresos`,inv:true}:null,
       inv>0?{l:'ROAS publicidad',ic:'🎯',v:fX(div(ingAds,inv)),s:`${fMk(ingAds)} atribuidos`}:null,
-      post.length?{l:'Casos postventa',ic:'⚠️',v:fN(post.length),s:`${fN(canc)} cancel. · ${fN(dev)} devol. (${fN(rec)} con reclamo)`,inv:true}:null,
-      post.length&&ped?{l:'Tasa de devolución',ic:'↩️',v:fP(div(dev,ped)),s:'devoluciones / pedidos',inv:true}:null,
-      preg.length?{l:'Preguntas',ic:'💬',v:fN(preg.length),s:`${fP(div(preg.filter(p=>p.compra).length,preg.length))} terminan en venta`}:null
+      post.length?{l:'Casos postventa',ic:'⚠️',v:fN(post.length),s:`${fN(canc)} cancel. · ${fN(dev)} devol. (${fN(rec)} con reclamo)`+notaCobertura('postventa',r),inv:true}:null,
+      post.length&&ped?{l:'Tasa de devolución',ic:'↩️',v:fP(div(dev,ped)),s:'devoluciones / pedidos'+notaCobertura('postventa',r),inv:true}:null,
+      preg.length?{l:'Preguntas',ic:'💬',v:fN(preg.length),s:`${fP(div(preg.filter(p=>p.compra).length,preg.length))} terminan en venta`+notaCobertura('preguntas',r)}:null
     ]));
 
     const g=el('div','grid g2');
@@ -1528,20 +1581,24 @@ function viewResumen(){
         ...(ped>0?[{label:'Pedidos',data:cur.map(x=>x.pedidos),color:PAL[6]}]:[])],{money:false,fmt:fN});
     },0);
 
+    const mp=mesesDelPeriodo(r);
+    const Pper=P.filter(x=>enMeses(x.mes,mp)), PRper=PR.filter(x=>enMeses(x.mes,mp));
     const g2=el('div','grid g2');
-    if(P.length){
-      const pRows=Array.from(sumBy(P.filter(x=>!r.desde||x.mes<=r.hasta),x=>x.provincia,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
-      const b1=chartBox('Ventas por provincia','Unidades acumuladas · top 12');
+    if(Pper.length){
+      const pRows=Array.from(sumBy(Pper,x=>x.provincia,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
+      const b1=chartBox('Ventas por provincia',`${fN(sum(pRows,x=>x.unidades))} unidades · top 12`);
       g2.appendChild(b1.card);
       setTimeout(()=>barChart(b1,pRows.slice(0,12).map(x=>x._k),[{label:'Unidades',data:pRows.slice(0,12).map(x=>x.unidades),color:PAL[0]}],{horizontal:true,money:false,fmt:fN}),0);
     }
-    if(PR.length){
-      const prRows=Array.from(sumBy(PR,x=>x.producto,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
-      const b2=chartBox('Productos más vendidos','Unidades acumuladas · top 12');
+    if(PRper.length){
+      const prRows=Array.from(sumBy(PRper,x=>x.producto,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
+      const b2=chartBox('Productos más vendidos',`${fN(sum(prRows,x=>x.unidades))} unidades · top 12`);
       g2.appendChild(b2.card);
       setTimeout(()=>barChart(b2,prRows.slice(0,12).map(x=>x._k.slice(0,38)),[{label:'Unidades',data:prRows.slice(0,12).map(x=>x.unidades),color:PAL[2]}],{horizontal:true,money:false,fmt:fN}),0);
     }
     if(g2.children.length) view.appendChild(g2);
+    const avP=P.length?avisoCobertura(coberturaMensual(P,'unidades'),mp,'El detalle por provincia'):null;
+    if(avP) view.appendChild(avP);
 
     // evolución mensual
     const meses=Array.from(sumBy(V,x=>x.fecha.slice(0,7),['ingresos','unidades','pedidos','margen']).values()).sort((a,b)=>a._k<b._k?-1:1);
@@ -1572,23 +1629,29 @@ function viewResumen(){
       {label:'Por compra',data:rows.map(x=>x.ticketC),color:PAL[0]}]),0);
     view.appendChild(dataTable({id:'res_dia',title:'Ventas por día',sub:'Ordená por cualquier columna haciendo clic en el encabezado',
       cols:[{k:'fecha',l:'Fecha',t:'date'},{k:'dia',l:'Día'},{k:'ingresos',l:'Ingresos',t:'money',total:'sum'},
-        {k:'margen',l:'Margen ML',t:'money',total:'sum'},{k:'mpct',l:'% Margen',t:'pct',total:'avg'},
+        {k:'margen',l:'Margen ML',t:'money',total:'sum'},
+        {k:'mpct',l:'% Margen',t:'pct',total:rs=>fP(div(sum(rs,x=>x.margen),sum(rs,x=>x.ingresos)))},
         {k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'pedidos',l:'Pedidos',t:'num',total:'sum'},
-        {k:'ticket',l:'Ticket x unidad',t:'money',total:'avg'},{k:'ticketC',l:'Ticket x compra',t:'money',total:'avg'}],
+        {k:'ticket',l:'Ticket x unidad',t:'money',total:rs=>fM(div(sum(rs,x=>x.ingresos),sum(rs,x=>x.unidades)))},
+        {k:'ticketC',l:'Ticket x compra',t:'money',total:rs=>fM(div(sum(rs,x=>x.ingresos),sum(rs,x=>x.pedidos)))}],
       rows,sort:{k:'fecha',dir:'desc'},totals:true,searchKeys:['fecha','dia'],csvName:'ventas_por_dia'}));
   }
 
   if(tabs.cur==='geo'){
     if(!P.length){ view.appendChild(card(null,null,'<div class="empty">No hay datos de provincias cargados.</div>')); return view; }
-    const mesesDisp=Array.from(new Set(P.map(x=>x.mes))).sort();
+    const mp=mesesDelPeriodo(r);
+    const Pper=P.filter(x=>enMeses(x.mes,mp));
+    const av=avisoCobertura(coberturaMensual(P,'unidades'),mp,'El detalle por provincia');
+    if(av) view.appendChild(av);
+    const mesesDisp=Array.from(new Set(Pper.map(x=>x.mes))).sort();
     const selMes=UI.filters.geoMes||'';
-    const rows=Array.from(sumBy(selMes?P.filter(x=>x.mes===selMes):P,x=>x.provincia,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
+    const rows=Array.from(sumBy(selMes?Pper.filter(x=>x.mes===selMes):Pper,x=>x.provincia,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
     const tot=sum(rows,x=>x.unidades);
-    const c=chartBox('Distribución geográfica','Unidades por provincia'+(selMes?' · '+MESN[+selMes.slice(5)-1]:' · todos los meses'),Math.max(280,rows.length*17));
+    const c=chartBox('Distribución geográfica',`${fN(tot)} unidades · ${fDateL(r.desde)} a ${fDateL(r.hasta)}`,Math.max(280,rows.length*17));
     view.appendChild(c.card);
     setTimeout(()=>barChart(c,rows.map(x=>x._k),[{label:'Unidades',data:rows.map(x=>x.unidades),color:PAL[0]}],{horizontal:true,money:false,fmt:fN,thick:15}),0);
     const maxU=Math.max(1,...rows.map(x=>x.unidades));
-    const detalle=Array.from(sumBy(P,x=>x.provincia+'||'+x.mes,['unidades']).values()).map(x=>{
+    const detalle=Array.from(sumBy(Pper,x=>x.provincia+'||'+x.mes,['unidades']).values()).map(x=>{
       const [pv,ms]=x._k.split('||');
       return {provincia:pv,mesL:ms?MESN[+ms.slice(5)-1]+' '+ms.slice(0,4):'',unidades:x.unidades,share:div(x.unidades,tot)};
     });
@@ -1605,7 +1668,11 @@ function viewResumen(){
 
   if(tabs.cur==='prod'){
     if(!PR.length){ view.appendChild(card(null,null,'<div class="empty">No hay ranking de productos cargado.</div>')); return view; }
-    const porProd=Array.from(sumBy(PR,x=>x.producto,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
+    const mp=mesesDelPeriodo(r);
+    const PRper=PR.filter(x=>enMeses(x.mes,mp));
+    const av=avisoCobertura(coberturaMensual(PR,'unidades'),mp,'El ranking de productos');
+    if(av) view.appendChild(av);
+    const porProd=Array.from(sumBy(PRper,x=>x.producto,['unidades']).values()).sort((a,b)=>b.unidades-a.unidades);
     const totU=sum(porProd,x=>x.unidades);
     const c=chartBox('Top 15 productos','Unidades vendidas',Math.max(260,15*20));
     view.appendChild(c.card);
@@ -1613,7 +1680,7 @@ function viewResumen(){
     view.appendChild(dataTable({id:'res_prod',title:'Productos y variaciones',sub:'Cruzá con Catálogo para ver visitas y conversión',
       cols:[{k:'producto',l:'Producto'},{k:'variacion',l:'Variación'},{k:'mesL',l:'Mes'},
         {k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'share',l:'% del total',t:'pct'}],
-      rows:PR.map(x=>({...x,mesL:x.mes?MESN[+x.mes.slice(5)-1]+' '+x.mes.slice(0,4):'',share:div(x.unidades,totU)})),
+      rows:PRper.map(x=>({...x,mesL:x.mes?MESN[+x.mes.slice(5)-1]+' '+x.mes.slice(0,4):'',share:div(x.unidades,totU)})),
       sort:{k:'unidades',dir:'desc'},totals:true,csvName:'top_productos'}));
     view.appendChild(dataTable({id:'res_prod_ag',title:'Consolidado por producto',
       cols:[{k:'producto',l:'Producto'},{k:'variantes',l:'Variantes',t:'num'},{k:'unidades',l:'Unidades',t:'num',total:'sum'},{k:'share',l:'% del total',t:'pct'}],
@@ -1707,12 +1774,14 @@ function viewAtencion(){
     const tiempos=q.map(x=>x.seg).filter(x=>x!=null&&x>0);
     const dias=new Set(q.map(x=>x.fecha)).size||1;
     view.appendChild(kpiRow([
-      {l:'Preguntas recibidas',ic:'💬',v:fN(q.length),s:`${nf1.format(div(q.length,dias))} por día`,d:delta(q.length,qPrev.length),hl:true},
+      {l:'Preguntas recibidas',ic:'💬',v:fN(q.length),
+        s:`${nf1.format(div(q.length,dias))} por día · ${dias} días con datos${rgQ&&r.hasta&&rgQ.max<r.hasta?` (la base termina el ${fDateL(rgQ.max)})`:''}`,
+        d:delta(q.length,qPrev.length),hl:true},
       {l:'Terminaron en venta',ic:'✅',v:fN(conv),s:fP(div(conv,q.length))+' de conversión',d:delta(div(conv,q.length),div(qPrev.filter(x=>x.compra).length,qPrev.length||1))},
       {l:'Tiempo medio de respuesta',ic:'⏱️',v:fSeg(div(sum(tiempos),tiempos.length)),s:'mediana '+fSeg(median(tiempos)),inv:true},
       {l:'Sin responder',ic:'🔔',v:fN(sinResp),s:sinResp?fP(div(sinResp,q.length))+' del total':'todo respondido',inv:true},
       {l:'Publicaciones consultadas',ic:'🏷️',v:fN(new Set(q.map(x=>x.mla||x.titulo)).size),s:'distintas'},
-      pedidos?{l:'Preguntas / pedido',ic:'📈',v:nf2.format(div(q.length,pedidos)),s:'cuánto pregunta la gente antes de comprar',inv:true}:null
+      pedidos&&rgQ&&r.hasta&&rgQ.max>=r.hasta?{l:'Preguntas / pedido',ic:'📈',v:nf2.format(div(q.length,pedidos)),s:'cuánto pregunta la gente antes de comprar',inv:true}:null
     ]));
 
     const g=el('div','grid g2');
@@ -1732,7 +1801,7 @@ function viewAtencion(){
     })).sort((a,b)=>b.preguntas-a.preguntas);
     view.appendChild(dataTable({id:'at_cat',title:'Categorías de consulta',sub:'Dónde está la fricción: mucha pregunta y poca conversión = ficha incompleta',
       cols:[{k:'categoria',l:'Categoría'},{k:'preguntas',l:'Preguntas',t:'num',total:'sum'},{k:'ventas',l:'Terminaron en venta',t:'num',total:'sum'},
-        {k:'conv',l:'% Conversión',t:'pct',total:'avg'},{k:'pubs',l:'Publicaciones',t:'num'},
+        {k:'conv',l:'% Conversión',t:'pct',total:rs=>fP(div(sum(rs,x=>x.ventas),sum(rs,x=>x.preguntas)))},{k:'pubs',l:'Publicaciones',t:'num'},
         {k:'seg',l:'Tiempo medio resp.',t:'num',render:r=>fSeg(r.seg)}],
       rows:cats,sort:{k:'preguntas',dir:'desc'},totals:true,csvName:'preguntas_por_categoria'}));
 
@@ -1786,7 +1855,9 @@ function viewAtencion(){
     const cam=dev.filter(x=>x.etapa==='Cambio de producto');
     const dias=new Set(c.map(x=>x.fecha)).size||1;
     view.appendChild(kpiRow([
-      {l:'Casos totales',ic:'⚠️',v:fN(c.length),s:`${nf1.format(div(c.length,dias))} por día`,d:delta(c.length,cPrev.length),inv:true,hl:true},
+      {l:'Casos totales',ic:'⚠️',v:fN(c.length),
+        s:`${nf1.format(div(c.length,dias))} por día · ${dias} días con datos${rgC&&r.hasta&&rgC.max<r.hasta?` (la base termina el ${fDateL(rgC.max)})`:''}`,
+        d:delta(c.length,cPrev.length),inv:true,hl:true},
       {l:'Cancelaciones',ic:'🚫',v:fN(canc.length),s:pedidos?fP(div(canc.length,pedidos))+' de los pedidos':'',inv:true},
       {l:'Devoluciones',ic:'↩️',v:fN(dev.length),s:`incluye ${fN(rec.length)} con reclamo y ${fN(cam.length)} cambios`,inv:true},
       {l:'Reclamos (mediación)',ic:'⚖️',v:fN(rec.length),s:pedidos?fP(div(rec.length,pedidos))+' de los pedidos':'',inv:true},
@@ -1944,6 +2015,15 @@ function viewMarketing(){
 
   if(tabs.cur==='gen'){
     const dias=new Set(cur.map(x=>x.fecha)).size||1;
+    const ventasPeriodo=sum(rowsOf('ventas_dia').filter(x=>inRange(x.fecha,r)),x=>x.ingresos);
+    const fuentes=[['ads_diario','reporte general de Ads'],['pads_diario','Product Ads'],['dsp_diario','DSP']]
+      .map(([k,n])=>{ const f=rowsOf(k).map(x=>x.fecha).filter(Boolean).sort();
+        return f.length? `<b>${n}</b> ${fDateL(f[0])} a ${fDateL(f[f.length-1])}` : null; }).filter(Boolean);
+    view.appendChild(el('div','note info',
+      `Los <b>ingresos atribuidos</b> son los que Mercado Libre le asigna a la publicidad, no ventas nuevas:
+       ${fMk(ing)} sobre ${fMk(ventasPeriodo)} facturados en el período (${fP(div(ing,ventasPeriodo))}). Display y Product Ads
+       pueden llevarse la misma venta cada uno, así que el ROAS global sirve para comparar campañas entre sí, no para calcular cuánto aportó la pauta al total.
+       ${fuentes.length?'<br>Cobertura de cada archivo: '+fuentes.join(' · ')+'.':''}`));
     view.appendChild(kpiRow([
       {l:'Inversión',ic:'💸',v:fMk(inv),s:`${fMk(div(inv,dias))} por día`,d:delta(inv,pInv),inv:true,hl:true},
       {l:'Ingresos atribuidos',ic:'💵',v:fMk(ing),s:`${fN(vts)} ventas`,d:delta(ing,pIng)},
@@ -1952,7 +2032,7 @@ function viewMarketing(){
       ventasTot?{l:'TACOS',ic:'🧮',v:fP(div(inv,ventasTot)),s:'inversión sobre la venta total de la cuenta',inv:true}:null,
       {l:'Clics',ic:'🖱️',v:fNk(cl),s:'CPC '+fM(div(inv,cl))},
       {l:'Impresiones',ic:'👁️',v:fNk(im),s:'CTR '+fP(div(cl,im),2)},
-      {l:'Conversión (CVR)',ic:'🛒',v:fP(div(vts,cl)),s:`${fN(vts)} ventas / ${fNk(cl)} clics`}
+      {l:'Conversión (CVR)',ic:'🛒',v:fP(div(vts,cl)),s:`${fN(vts)} ventas / ${fNk(cl)} clics · en Display ML cuenta ventas por impresión, no por clic, así que este número queda inflado`}
     ]));
     const g=el('div','grid g2');
     const c1=chartBox('Ingresos atribuidos por día','Ventas que la publicidad se lleva como propias');
@@ -2157,6 +2237,7 @@ function viewCatalogo(){
 
   const tabs=subTabs('catalogo',[{id:'pan',nom:'Panorama'},{id:'pub',nom:'Publicaciones'},{id:'op',nom:'Oportunidades'},{id:'cat',nom:'Por categoría'}]);
   view.appendChild(tabs.node);
+  view.appendChild(el('div','note info','Este sector <b>no usa el filtro de período</b>: muestra el archivo de publicaciones tal como lo bajaste. Las visitas y la conversión son acumuladas de cada publicación, y las unidades y la facturación corresponden al período que tenía el reporte cuando lo generaste.'));
 
   const act=base.filter(x=>norm(x.estado).startsWith('activ'));
   const pau=base.filter(x=>norm(x.estado).startsWith('pausad'));
@@ -2425,6 +2506,7 @@ function viewComercial(){
   const tabs=subTabs('comercial',[{id:'mar',nom:'Margen'},{id:'rot',nom:'Rotación de stock'},{id:'promo',nom:'Promociones'},{id:'abc',nom:'ABC / Pareto'},{id:'costos',nom:'Costos cargados'}]);
   view.appendChild(tabs.node);
 
+  view.appendChild(el('div','note info','Este sector <b>no usa el filtro de período</b>: las ventas salen del reporte de publicaciones con ventas y el stock, del último archivo que hayan cargado.'));
   if(!CO.length) view.appendChild(el('div','note','⚠️ Todavía no cargaste el Excel de <b>costos por producto</b> (SKU, MLA, Costo c/IVA). Sin eso no hay margen: subilo con el botón de arriba y queda fijo para todo el equipo.'));
   else view.appendChild(el('div','note info',`💡 Margen = <b>precio real de venta</b> × (1 − ${fP(ret.tasa)}) − <b>costo c/IVA</b>. El precio real sale de facturación ÷ unidades (así quedan incluidas promos y descuentos, que en tu catálogo dejan el precio bastante por debajo del de lista). La retención de Mercado Libre — comisión, envío e impuestos — ${ret.real?`la calculé comparando ingresos contra Margen ML en ${ret.dias} días de tus propios reportes`:'quedó en el valor por defecto porque falta el Margen ML en las ventas diarias'}.`));
 
@@ -3360,6 +3442,7 @@ function renderNav(){
 }
 function render(){
   killCharts();
+  UI._fmax=undefined;      /* se recalcula la fecha tope global por si entraron datos nuevos */
   renderNav();
   const v=$('#view'); v.innerHTML='';
   try{ v.appendChild((VIEWS[UI.sector]||viewResumen)()); }
