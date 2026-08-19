@@ -593,11 +593,11 @@ const DATASETS = {
   pub_ventas:      {label:'Publicaciones con ventas',  sector:'catalogo',  key:r=>r.mla,                   desc:'Unidades y facturación por publicación'},
   comp_diario:     {label:'Competencia · ventas diarias', sector:'negocio',key:r=>r.fecha,                 desc:'Ingresos y unidades diarias del competidor'},
   comp_publicaciones:{label:'Competencia · publicaciones', sector:'negocio',key:r=>r.titulo,               desc:'Ranking de publicaciones del competidor'},
-  stock:           {label:'Stock Full y Flex',         sector:'logistica', key:r=>r.mla+'|'+(r.variante||''), desc:'Stock en Full y en depósito propio, por publicación y variante'},
+  stock:           {label:'Stock Full y Flex',         sector:'logistica', key:r=>r.mla+'|'+(r.variante||''), snapshot:true, desc:'Stock en Full y en depósito propio, por publicación y variante'},
   comercial:       {label:'Rotación, margen y promos', sector:'comercial', key:r=>r.sku||r.mla||r.producto, desc:'Costos, precios, stock y promociones'},
   acciones:        {label:'Plan de acción por producto', sector:'atencion', key:r=>r.producto+'|'+r.detalle, desc:'Qué se detectó y qué se hizo con cada producto preguntado'},
   costos:          {label:'Costos por producto',        sector:'comercial', key:r=>r.sku||r.mla,             desc:'Costo con y sin IVA por SKU — base fija para calcular margen'},
-  full_plan:       {label:'Planificación de Full',       sector:'logistica', key:r=>r.sku||r.codigo,          desc:'Stock en Full, en camino, sugerencia de reposición y nivel según Mercado Libre'}
+  full_plan:       {label:'Planificación de Full',       sector:'logistica', key:r=>r.sku||r.codigo,          snapshot:true, desc:'Stock en Full, en camino, sugerencia de reposición y nivel según Mercado Libre'}
 };
 const SECTORES = [
   {id:'resumen',   ic:'📈', nom:'Resumen Ejecutivo', datasets:['ventas_dia','ventas_provincia','top_productos']},
@@ -797,13 +797,18 @@ const SNIFFERS = [
 
 /* --- Reporte de Planificación de Full (los números vienen como texto: 1.825 = 1825) --- */
 (nm,mx)=>{
+  let fechaRep='';
+  for(const row of mx.slice(0,8)) for(const c of (row||[])){
+    const m=String(c==null?'':c).match(/descargado el (.+?)(?:\.|$)/i);
+    if(m){ const d=parseFecha(m[1].trim()); if(d) fechaRep=iso(d); }
+  }
   const rows=tabular(mx,['Unidades aptas','Unidades sugeridas','Nivel de stock'],o=>{
     const prod=String(col(o,'Producto')||'').trim(); if(!prod) return null;
     const pubs=String(col(o,'Publicaciones con este producto','Publicaciones')||'')
       .split(/[,;]/).map(x=>mlaKey(x)).filter(x=>x&&x.length>6);
     const lim=String(col(o,'Fecha límite de envío','Fecha limite')||'').trim();
     const vr=String(col(o,'Variante')||'').trim();
-    return {sku:String(col(o,'SKU')||'').trim(), codigo:String(col(o,'Código ML','Codigo ML')||'').trim(),
+    return {fechaRep, sku:String(col(o,'SKU')||'').trim(), codigo:String(col(o,'Código ML','Codigo ML')||'').trim(),
       producto:prod, variante:(vr==='N/A'||vr==='-')?'':vr,
       mla:pubs[0]||'', mlas:pubs.join(','), publicaciones:pubs.length,
       tamano:String(col(o,'Tamaño','Tamano')||'').trim(), volumen:numAR(col(o,'Volumen del producto')),
@@ -836,7 +841,7 @@ const SNIFFERS = [
     const esPadre=!!tit;                          /* la fila con título es la publicación completa */
     if(esPadre) padre={mla:mlaKey(item),titulo:tit};
     const lim=v=>{ const t=String(v==null?'':v).trim(); return (t==='-'||t==='')?0:numAR(v); };
-    out.push({mla:mlaKey(item), sku:'', titulo:esPadre?tit:(padre?padre.titulo:''),
+    out.push({v:2, mla:mlaKey(item), sku:'', titulo:esPadre?tit:(padre?padre.titulo:''),
       variante:(esPadre||varTxt==='-')?'':varTxt,
       stock_full:lim(r[iFull]), stock_flex:lim(r[iFlex]), en_camino:0,
       precio:iPre>=0?lim(r[iPre]):0, estado:'', esPadre,
@@ -852,7 +857,7 @@ const SNIFFERS = [
     /* la fila de ejemplo de la plantilla no es stock real */
     if(String(col(o,'SKU','Código')||'').trim()==='GH-001'&&/Dubai King/i.test(t)) return null;
     const mla=mlaKey(col(o,'MLA','# de publicación','Nº Publicación','Publicación','Código'))||String(col(o,'SKU')||'').trim();
-    return {mla:mla||t.slice(0,40), sku:String(col(o,'SKU','Código')||'').trim(), titulo:t,
+    return {v:2, esPadre:true, mla:mla||t.slice(0,40), sku:String(col(o,'SKU','Código')||'').trim(), titulo:t,
       variante:String(col(o,'Variante','Variación','Atributos')||'').trim(),
       stock_flex:num(col(o,'En mi depósito','Stock Flex','Stock propio')),
       stock_full:num(col(o,'Disponible en Full','En Full','Stock Full','Full')),
@@ -1055,7 +1060,9 @@ function dedupe(key,rows){
   return Array.from(m.values());
 }
 function mergeInto(key,newRows,mode){
-  if(mode==='replace') return dedupe(key,newRows);
+  /* los conjuntos "foto" (stock, planificación) no se acumulan: cada archivo reemplaza al anterior,
+     si no quedarían productos que ya no existen con stock viejo */
+  if(mode==='replace'||(DATASETS[key]||{}).snapshot) return dedupe(key,newRows);
   return dedupe(key,rowsOf(key).concat(newRows));
 }
 
@@ -1100,7 +1107,7 @@ async function importFiles(fileList,sectorHint){
     const d=DATASETS[r.key]||{}; const exists=hasData(r.key);
     return `<label class="chk"><input type="checkbox" data-i="${i}" checked>
       <span><b>${esc(d.label||r.key)}</b> — ${fN(r.rows.length)} filas
-      <small>Hoja: ${esc(r.sheets.join(', '))} · Sector: ${esc((SECTORES.find(s=>s.id===d.sector)||{}).nom||'')}${exists?` · ya hay ${fN(rowsOf(r.key).length)} filas cargadas`:''}</small></span></label>`;
+      <small>Hoja: ${esc(r.sheets.join(', '))} · Sector: ${esc((SECTORES.find(s=>s.id===d.sector)||{}).nom||'')}${exists?(d.snapshot?` · reemplaza las ${fN(rowsOf(r.key).length)} filas que había (es una foto del momento)`:` · ya hay ${fN(rowsOf(r.key).length)} filas cargadas`):''}</small></span></label>`;
   }).join('');
   dialog('Datos detectados en el archivo',
     `<p style="margin-top:0;color:var(--ink2)">Encontré esto en <b>${esc(files.map(f=>f.name).join(', '))}</b>. Destildá lo que no quieras cargar.</p>
@@ -2539,7 +2546,11 @@ function viewComercial(){
      para los totales se usan SÓLO las filas de publicación (esPadre), si no se duplica.
    · Reporte de Planificación      → en camino, sugerencia de reposición, nivel y ventas de 30 días, por SKU. */
 function stockPublicaciones(){
-  const S=rowsOf('stock');
+  const todo=rowsOf('stock');
+  /* Las filas cargadas con el lector anterior no distinguían la fila de la publicación
+     de las filas de variante, así que sumaban el stock dos veces: se descartan. */
+  const S=todo.filter(x=>num(x.v)>=2);
+  const viejas=todo.length-S.length;
   const padres=S.filter(x=>x.esPadre), hijos=S.filter(x=>!x.esPadre);
   const m=new Map();
   if(padres.length){ padres.forEach(x=>{ const k=mlaKey(x.mla);
@@ -2550,7 +2561,7 @@ function stockPublicaciones(){
     const o=m.get(k)||{full:0,flex:0,titulo:'',precio:0};
     o.full+=num(x.stock_full); o.flex+=num(x.stock_flex); o.titulo=o.titulo||x.titulo; o.precio=o.precio||num(x.precio);
     m.set(k,o); }); }
-  return {mapa:m, padres, hijos, hayExport:padres.length>0||S.length>0};
+  return {mapa:m, padres, hijos, viejas, hayExport:padres.length>0||S.length>0};
 }
 /* Stock por publicación para el resto de la app (Comercial, Sugerencias) */
 function stockPorMLA(){
@@ -2567,13 +2578,14 @@ function stockPorMLA(){
   });
   return m;
 }
+function S2v(){ return rowsOf('stock').filter(x=>num(x.v)>=2); }   /* deja sólo lo leído con el lector nuevo */
 function viewLogistica(){
   const F=rowsOf('full_plan'), S=rowsOf('stock'), PV=rowsOf('pub_ventas'), P=rowsOf('publicaciones');
   const view=el('div');
   view.appendChild(uploadStrip('logistica',plantillaStock));
   if(!F.length&&!S.length){ view.appendChild(emptyState('logistica','Cargá el export de <b>Publicaciones</b> de Mercado Libre (trae el stock de hoy en Full y en tu depósito) y el <b>Reporte de Planificación</b> (trae lo que está en camino y cuánto sugiere enviar ML).')); return view; }
 
-  const {mapa:stkMap,padres,hijos,hayExport}=stockPublicaciones();
+  const {mapa:stkMap,padres,hijos,viejas,hayExport}=stockPublicaciones();
   const costos=mapaCostos(), listaCostos=rowsOf('costos');
   const catMap=new Map(); P.forEach(x=>catMap.set(mlaKey(x.mla),x));
   const ventasMap=new Map(); PV.forEach(x=>ventasMap.set(mlaKey(x.mla),x));
@@ -2619,13 +2631,27 @@ function viewLogistica(){
   const criticos=skus.filter(x=>/crítico|critico|bajo/i.test(x.nivel));
   const soloDeposito=pubs.filter(x=>x.flex>0&&x.full<=0);
 
+  if(viejas){
+    const aviso=el('div','note crit');
+    aviso.innerHTML=`⚠️ Hay <b>${fN(viejas)} filas de stock</b> cargadas con la versión anterior del lector, que sumaba dos veces las variantes. Están descartadas de todos los números. Borralas y volvé a cargar el export de Publicaciones. `;
+    const b=el('button','btn sm','🗑️ Borrar el stock viejo y cargar de nuevo');
+    b.onclick=()=>{
+      DB.datasets.stock={rows:S2v(),ts:Date.now(),src:'',by:DB.meta.user||'',meta:{},remoto:(DB.datasets.stock||{}).remoto};
+      saveLocal(); if(SB.on) push('stock').catch(()=>{});
+      render(); setTimeout(()=>$('#filePick').click(),300);
+    };
+    aviso.appendChild(b);
+    view.appendChild(aviso);
+  }
   const tabs=subTabs('logistica',[{id:'pan',nom:'Panorama'},
     ...(hayExport?[{id:'pub',nom:'Full vs. depósito propio'}]:[]),
     ...(F.length?[{id:'env',nom:'Qué enviar a Full'},{id:'det',nom:'Detalle por SKU'}]:[])]);
   view.appendChild(tabs.node);
 
+  const infoStock=dsInfo('stock'), infoPlan=dsInfo('full_plan');
+  const fechaPlan=(F[0]&&F[0].fechaRep)?fDateL(F[0].fechaRep):(infoPlan?fDT(infoPlan.ts):'');
   if(hayExport&&F.length) view.appendChild(el('div','note info',
-    `Dos fuentes combinadas: el <b>stock de hoy</b> (Full y depósito propio) sale del export de Publicaciones — ${fN(padres.length)} publicaciones${hijos.length?` y ${fN(hijos.length)} variantes`:''} —, y lo que está <b>en camino</b>, el <b>nivel</b> y la <b>sugerencia de reposición</b> salen del Reporte de Planificación, que viene por SKU (${fN(skus.length)} productos).`));
+    `Dos fuentes combinadas. <b>Stock de hoy</b> (Full y depósito propio): export de Publicaciones, ${fN(padres.length)} publicaciones${hijos.length?` y ${fN(hijos.length)} variantes`:''}${infoStock?` · cargado el ${fDT(infoStock.ts)}`:''}. <b>En camino, nivel y sugerencia de reposición</b>: Reporte de Planificación por SKU (${fN(skus.length)} productos)${fechaPlan?` · descargado el ${fechaPlan}`:''}. Si las dos fechas no coinciden, los números tampoco van a coincidir entre sí.`));
 
   view.appendChild(kpiRow([
     {l:'Unidades en Full',ic:'🏭',v:fN(fullTot),s:`${fN(pubs.filter(x=>x.full>0).length||skus.filter(x=>x.aptas>0).length)} publicaciones con stock`,hl:true},
@@ -2639,6 +2665,7 @@ function viewLogistica(){
   ]));
 
   if(tabs.cur==='pan'){
+    view.appendChild(el('div','note','ℹ️ “Unidades en Full” es lo que hay en la bodega de ML según la columna <b>En full</b> del export, y tiene que dar parecido al <b>uso de tus espacios asignados</b> del panel de Full. No es lo mismo que el cuadro “Estado de tu stock”, que separa buena calidad, para impulsar ventas, para evitar descarte y pendientes de ingreso: esa apertura ML no la exporta.'));
     const g=el('div','grid g2');
     const c1=chartBox('Dónde está el stock','Unidades por publicación · top 15',Math.max(260,15*22));
     const c2=chartBox(F.length?'Nivel de stock en Full según ML':'Publicaciones por situación de stock');
