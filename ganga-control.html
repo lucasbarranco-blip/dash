@@ -436,7 +436,9 @@ const CF = {
 
 const SB = {
   err:'', lastOk:0, faltaTabla:false,
-  get on(){ return !!(DB.cfg.url && DB.cfg.key); },
+  /* Supabase necesita clave; el Worker propio se protege por origen, así que
+     alcanza con la dirección. */
+  get on(){ if(!DB.cfg.url) return false; return SB.modo==='supabase'? !!DB.cfg.key : true; },
   /* Supabase o Worker propio: se decide por la dirección, sin que nadie configure nada */
   get modo(){
     if(DB.cfg.tipo==='supabase'||DB.cfg.tipo==='worker') return DB.cfg.tipo;   /* elegido a mano */
