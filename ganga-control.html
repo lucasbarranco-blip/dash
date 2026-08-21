@@ -333,7 +333,7 @@ function dialog(title,bodyHTML,buttons){
 
 /* ---------------------------- store ---------------------------- */
 const LSK='gh_control_v1';
-const DB = { datasets:{}, history:[], cfg:{url:'',key:''}, meta:{} };
+const DB = { datasets:{}, history:[], cfg:{url:'',key:'',version:0}, meta:{} };
 
 function loadLocal(){
   try{ const raw=localStorage.getItem(LSK); if(raw){ const o=JSON.parse(raw); Object.assign(DB,o); } }catch(e){ console.warn('local',e); }
@@ -366,9 +366,82 @@ function saveCfg(){ localStorage.setItem(LSK+'_cfg', JSON.stringify(DB.cfg)); }
    - antes de subir, combina con lo que haya en la nube (nadie pisa a nadie)
    - propaga borrados y avisa quién actualizó qué
    ========================================================================= */
+/* =========================================================================
+   Compresión de lo que viaja por la red.
+   Las filas se mandan comprimidas con gzip: los conjuntos grandes (preguntas,
+   postventa) pasan de más de 1 MB a unos 150 KB. Es lo que evita volver a
+   comerse la cuota del servidor.
+   ========================================================================= */
+const PUEDE_GZIP = (typeof CompressionStream!=='undefined' && typeof DecompressionStream!=='undefined');
+function aB64(u8){ let s='', CH=0x8000; for(let i=0;i<u8.length;i+=CH) s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH)); return btoa(s); }
+function deB64(b64){ const bin=atob(b64), u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return u8; }
+async function comprimir(valor){
+  const txt=JSON.stringify(valor==null?[]:valor);
+  if(!PUEDE_GZIP) return 'raw:'+txt;
+  const b=await new Response(new Blob([txt]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+  return 'gz:'+aB64(new Uint8Array(b));
+}
+async function descomprimir(v){
+  if(v==null) return [];
+  if(typeof v!=='string') return v;                 /* Supabase ya lo devuelve como lista */
+  if(v.startsWith('raw:')) return JSON.parse(v.slice(4));
+  if(v.startsWith('gz:')){
+    const u8=deB64(v.slice(3));
+    const txt=await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    return JSON.parse(txt);
+  }
+  try{ return JSON.parse(v); }catch(e){ return []; }
+}
+function parseMeta(m){ if(!m) return {}; if(typeof m!=='string') return m; try{ return JSON.parse(m); }catch(e){ return {}; } }
+
+/* =========================================================================
+   Servidor de sincronización.
+   Hay dos posibles y la app elige sola según la dirección configurada:
+     · Supabase  (PostgREST)                    -> direcciones *.supabase.co
+     · Worker de Cloudflare con base D1         -> cualquier otra
+   Las dos exponen la misma interfaz, así que el motor de sync de más abajo
+   no sabe ni le importa con cuál está hablando.
+   ========================================================================= */
+
+/* ---------- Cloudflare Worker + D1 ---------- */
+const CF = {
+  base(){ return String(DB.cfg.url||'').replace(/\/+$/,''); },
+  sufijo(){ return DB.cfg.key? '?t='+encodeURIComponent(DB.cfg.key) : ''; },
+  async req(ruta,cuerpo){
+    let r;
+    const opt = cuerpo!==undefined
+      ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cuerpo)}
+      : {method:'GET'};
+    try{ r=await fetch(CF.base()+'/'+ruta+CF.sufijo(),opt); }
+    catch(e){ SB.err='No hay conexión con el servidor'; SB.lastOk=0; throw new Error('No hay conexión con el servidor'); }
+    const txt=await r.text();
+    let j=null; try{ j=JSON.parse(txt); }catch(e){}
+    if(!r.ok){
+      SB.err=(j&&j.error)||txt.slice(0,300);
+      throw new Error(String(SB.err).slice(0,160)||('HTTP '+r.status));
+    }
+    SB.err=''; SB.faltaTabla=false; SB.lastOk=Date.now();
+    return j;
+  },
+  /* deja los registros con la misma forma que devuelve Supabase */
+  async normalizar(x){
+    return {clave:x.clave, sector:x.sector||'', etiqueta:x.etiqueta||'', autor:x.autor||'',
+            origen:x.origen||'', rev:num(x.rev), actualizado:x.actualizado||'',
+            filas:await descomprimir(x.filas), meta:parseMeta(x.meta)};
+  },
+  async cuerpoPut(payload){
+    return {...payload, filas:await comprimir(payload.filas)};
+  }
+};
+
 const SB = {
   err:'', lastOk:0, faltaTabla:false,
   get on(){ return !!(DB.cfg.url && DB.cfg.key); },
+  /* Supabase o Worker propio: se decide por la dirección, sin que nadie configure nada */
+  get modo(){
+    if(DB.cfg.tipo==='supabase'||DB.cfg.tipo==='worker') return DB.cfg.tipo;   /* elegido a mano */
+    return /supabase\.co/i.test(DB.cfg.url||'')? 'supabase' : 'worker';
+  },
   hdr(extra){ return {apikey:DB.cfg.key,Authorization:'Bearer '+DB.cfg.key,'Content-Type':'application/json',...(extra||{})}; },
   url(qs){ return `${DB.cfg.url}/rest/v1/gh_reportes${qs||''}`; },
   async req(qs,opt){
@@ -386,6 +459,7 @@ const SB = {
   },
   /* índice: liviano, es lo que se consulta cada 20 segundos */
   async index(){
+    if(SB.modo==='worker') return await CF.req('index');
     let filas;
     try{
       const r=await SB.req('?select=clave,actualizado,autor,origen,rev',{headers:SB.hdr()});
@@ -403,21 +477,40 @@ const SB = {
   },
   async fetchKeys(keys){
     if(!keys.length) return [];
+    if(SB.modo==='worker'){
+      const crudas=await CF.req('get',{claves:keys});
+      return await Promise.all((crudas||[]).map(x=>CF.normalizar(x)));
+    }
     const lista=keys.map(k=>'"'+String(k).replace(/"/g,'')+'"').join(',');
     const r=await SB.req('?select=*&clave=in.('+encodeURIComponent(lista)+')',{headers:SB.hdr()});
     return await r.json();
   },
   async fetchOne(key){
+    if(SB.modo==='worker'){
+      const crudas=await CF.req('get',{claves:[key]});
+      return (crudas&&crudas.length)? await CF.normalizar(crudas[0]) : null;
+    }
     const r=await SB.req('?select=*&clave=eq.'+encodeURIComponent(key),{headers:SB.hdr()});
     const a=await r.json(); return a[0]||null;
   },
   async upsert(payload){
+    if(SB.modo==='worker'){
+      const actual=await CF.req('get',{claves:[payload.clave]});
+      const rev=(actual&&actual.length)? num(actual[0].rev) : 0;
+      const cuerpo=await CF.cuerpoPut({...payload,rev:rev+1});
+      if(!(actual&&actual.length)) return !!(await CF.req('put',{modo:'nuevo',payload:cuerpo})).aplicado;
+      return !!(await CF.req('put',{modo:'cas',revEsperada:rev,payload:cuerpo})).aplicado;
+    }
     await SB.req('?on_conflict=clave',{method:'POST',
       headers:SB.hdr({Prefer:'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify([payload])});
     return true;
   },
   /* alta sólo si no existe: devuelve true si la creó esta computadora */
   async insertarNuevo(payload){
+    if(SB.modo==='worker'){
+      const r=await CF.req('put',{modo:'nuevo',payload:await CF.cuerpoPut(payload)});
+      return !!(r&&r.aplicado);
+    }
     const r=await SB.req('?on_conflict=clave',{method:'POST',
       headers:SB.hdr({Prefer:'resolution=ignore-duplicates,return=representation'}),body:JSON.stringify([payload])});
     const a=await r.json().catch(()=>[]);
@@ -425,12 +518,18 @@ const SB = {
   },
   /* actualiza SÓLO si nadie más lo tocó desde que lo leímos (compare-and-swap sobre rev) */
   async actualizarSiIntacto(key,rev,payload){
+    if(SB.modo==='worker'){
+      const r=await CF.req('put',{modo:'cas',revEsperada:num(rev)||0,
+        payload:await CF.cuerpoPut({...payload,clave:key})});
+      return !!(r&&r.aplicado);
+    }
     const r=await SB.req('?clave=eq.'+encodeURIComponent(key)+'&rev=eq.'+(rev||0),
       {method:'PATCH',headers:SB.hdr({Prefer:'return=representation'}),body:JSON.stringify(payload)});
     const a=await r.json().catch(()=>[]);
     return Array.isArray(a)&&a.length>0;
   },
   async remove(key){
+    if(SB.modo==='worker'){ await CF.req('del',{clave:key}); return true; }
     await SB.req('?clave=eq.'+encodeURIComponent(key),{method:'DELETE',headers:SB.hdr()});
     return true;
   }
@@ -450,6 +549,23 @@ function estadoSync(){
   const seg=Math.round((Date.now()-SB.lastOk)/1000);
   setSync('on', seg<90?'En línea':'Hace '+Math.round(seg/60)+' min',
     'Sincronizado con el equipo'+(DB.meta.user?' como '+DB.meta.user:'')+'. Última verificación: '+(seg<60?'hace '+seg+' s':fDT(SB.lastOk)));
+}
+
+/* El servidor del equipo se publica en el repo (sync-config.json). Así, cuando
+   mudamos de servidor, cada computadora lo adopta sola en la próxima carga:
+   nadie tiene que ir máquina por máquina pegando la dirección nueva.
+   El número de versión es lo que decide: sólo se adopta si es mayor al guardado. */
+async function autoConfigServidor(){
+  try{
+    const r=await fetch('sync-config.json',{cache:'no-store'});
+    if(!r.ok) return false;
+    const c=await r.json();
+    if(!c||!c.url) return false;
+    if(num(c.version||0) <= num(DB.cfg.version||0)) return false;
+    DB.cfg={url:String(c.url).replace(/\/+$/,''),key:c.key||'',version:num(c.version||0)};
+    saveCfg();
+    return true;
+  }catch(e){ return false; }
 }
 
 async function autoDetectSupabase(){
@@ -3526,23 +3642,24 @@ create policy "gh_reportes acceso" on gh_reportes
 function dlgSync(){
   const seg=SB.lastOk?Math.round((Date.now()-SB.lastOk)/1000):null;
   dialog('Sincronización con el equipo',
-    `<p style="margin-top:0">Cuando está conectada, cada Excel que carga alguien queda disponible para todos: la app revisa el servidor cada 20 segundos y baja sólo lo que cambió.</p>
+    `<p style="margin-top:0">Cuando está conectada, cada Excel que carga alguien queda disponible para todos: la app revisa el servidor cada 20 segundos y baja sólo lo que cambió, comprimido.</p>
      <div style="display:grid;gap:9px;margin:12px 0">
        <label style="font-size:12.5px;font-weight:600">Tu nombre <span style="font-weight:400;color:var(--muted)">— para que el resto vea quién cargó cada reporte</span>
          <input id="sbN" type="text" value="${esc(DB.meta.user||'')}" placeholder="Ej: Lucas" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
-       <label style="font-size:12.5px;font-weight:600">URL del proyecto Supabase
-         <input id="sbU" type="text" value="${esc(DB.cfg.url||'')}" placeholder="https://xxxx.supabase.co" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
-       <label style="font-size:12.5px;font-weight:600">Clave pública (anon)
-         <input id="sbK" type="password" value="${esc(DB.cfg.key||'')}" placeholder="eyJ..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
+       <label style="font-size:12.5px;font-weight:600">Dirección del servidor <span style="font-weight:400;color:var(--muted)">— el Worker de Cloudflare o el proyecto Supabase</span>
+         <input id="sbU" type="text" value="${esc(DB.cfg.url||'')}" placeholder="https://ganga-sync.tu-cuenta.workers.dev" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
+       <label style="font-size:12.5px;font-weight:600">Clave o token
+         <input id="sbK" type="password" value="${esc(DB.cfg.key||'')}" placeholder="el token del Worker, o la clave anon de Supabase" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
      </div>
-     <p style="font-size:12.5px;color:var(--ink2);margin-bottom:6px"><b>Una sola vez:</b> creá la tabla en el editor SQL de Supabase.</p>
-     <code class="sql">${esc(SQL_TABLA)}</code>
+     ${SB.modo==='supabase'?`<p style="font-size:12.5px;color:var(--ink2);margin-bottom:6px"><b>Una sola vez:</b> creá la tabla en el editor SQL de Supabase.</p>
+     <code class="sql">${esc(SQL_TABLA)}</code>`:`<p style="font-size:12.5px;color:var(--ink2);margin-bottom:6px">Servidor propio en Cloudflare. La base se prepara sola en el primer uso; no hay que crear ninguna tabla a mano.</p>`}
      <p style="font-size:12px;color:var(--muted);margin-bottom:0">Estado: ${SB.on?(SB.err?'<b style="color:var(--crit)">con error</b>':'conectada'):'sin configurar'}${seg!=null?' · última verificación hace '+seg+' s':''}${SB.err?'<br>Último error: '+esc(SB.err.slice(0,180)):''}</p>`,
     [{t:'Cerrar'},
      {t:'Trabajar solo local',fn:()=>{ DB.cfg={url:'',key:''}; saveCfg(); clearInterval(SYNC.timer); estadoSync(); toast('Modo local'); }},
      {t:'Guardar y conectar',cls:'primary',fn:(b)=>{
         DB.meta.user=$('#sbN',b).value.trim(); 
-        DB.cfg={url:$('#sbU',b).value.trim().replace(/\/$/,''),key:$('#sbK',b).value.trim()}; saveCfg(); saveLocal();
+        DB.cfg={url:$('#sbU',b).value.trim().replace(/\/+$/,''),key:$('#sbK',b).value.trim(),
+                version:num(DB.cfg.version||0)}; saveCfg(); saveLocal();
         arrancarSync();
         sync(false).then(()=>{ render(); if(SB.faltaTabla) toast('Falta crear la tabla gh_reportes en Supabase',true); });
      }}]);
@@ -3628,6 +3745,7 @@ async function init(){
   loadLocal();
   const h=location.hash.replace('#',''); if(VIEWS[h]) UI.sector=h;
   wire(); render(); estadoSync();
+  await autoConfigServidor();                 /* ¿el equipo cambió de servidor? */
   if(!SB.on) await autoDetectSupabase();
   if(SB.on){
     setSync('on','Sincronizando…');
