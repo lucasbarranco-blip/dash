@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "url": "https://ganga-sync.gangahome.workers.dev",
+  "key": "",
+  "nota": "Servidor de sincronizacion del tablero. Subir la version para que todas las computadoras adopten un servidor nuevo en la proxima carga."
+}

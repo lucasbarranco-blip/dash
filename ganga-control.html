@@ -248,7 +248,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <script>
 /* =========================================================================
    GANGA HOME · CONTROL DE GESTIÓN
-   App single-file. Datos compartidos vía Supabase (tabla gh_reportes).
+   App single-file. Datos compartidos vía un Worker propio en Cloudflare (base D1).
    ========================================================================= */
 const APP_VERSION = '1.0';
 const PAL = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
@@ -308,7 +308,7 @@ const nf1=new Intl.NumberFormat('es-AR',{minimumFractionDigits:1,maximumFraction
 const nf2=new Intl.NumberFormat('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fN = v => nf0.format(Math.round(num(v)));
 const fM = v => '$'+nf0.format(Math.round(num(v)));
-const fMk = v => { v=num(v); const a=Math.abs(v); if(a>=1e9)return '$'+nf1.format(v/1e9)+'MM'; if(a>=1e6)return '$'+nf1.format(v/1e6)+'M'; if(a>=1e3)return '$'+nf0.format(v/1e3)+'k'; return '$'+nf0.format(v); };
+const fMk = v => { v=num(v); const a=Math.abs(v); if(a>=1e9)return '$'+nf0.format(v/1e6)+'M'; if(a>=1e6)return '$'+nf1.format(v/1e6)+'M'; if(a>=1e3)return '$'+nf0.format(v/1e3)+'k'; return '$'+nf0.format(v); };
 const fNk = v => { v=num(v); const a=Math.abs(v); if(a>=1e6)return nf1.format(v/1e6)+'M'; if(a>=10000)return nf0.format(v/1e3)+'k'; return nf0.format(v); };
 const fP  = (v,d=1)=> (num(v)*100).toFixed(d).replace('.',',')+'%';
 const fPn = (v,d=1)=> num(v).toFixed(d).replace('.',',')+'%';
@@ -360,7 +360,7 @@ function saveLocal(){
 function saveCfg(){ localStorage.setItem(LSK+'_cfg', JSON.stringify(DB.cfg)); }
 
 /* =========================================================================
-   SINCRONIZACIÓN MULTI-COMPUTADORA (Supabase / PostgREST)
+   SINCRONIZACIÓN MULTI-COMPUTADORA (Worker propio en Cloudflare + D1)
    - índice liviano cada 20 s: sólo trae clave + fecha de actualización
    - baja únicamente los conjuntos que cambiaron
    - antes de subir, combina con lo que haya en la nube (nadie pisa a nadie)
@@ -383,7 +383,7 @@ async function comprimir(valor){
 }
 async function descomprimir(v){
   if(v==null) return [];
-  if(typeof v!=='string') return v;                 /* Supabase ya lo devuelve como lista */
+  if(typeof v!=='string') return v;                 /* ya viene como lista */
   if(v.startsWith('raw:')) return JSON.parse(v.slice(4));
   if(v.startsWith('gz:')){
     const u8=deB64(v.slice(3));
@@ -395,24 +395,27 @@ async function descomprimir(v){
 function parseMeta(m){ if(!m) return {}; if(typeof m!=='string') return m; try{ return JSON.parse(m); }catch(e){ return {}; } }
 
 /* =========================================================================
-   Servidor de sincronización.
-   Hay dos posibles y la app elige sola según la dirección configurada:
-     · Supabase  (PostgREST)                    -> direcciones *.supabase.co
-     · Worker de Cloudflare con base D1         -> cualquier otra
-   Las dos exponen la misma interfaz, así que el motor de sync de más abajo
-   no sabe ni le importa con cuál está hablando.
+   Servidor de sincronización del equipo.
+   Un solo servidor: un Worker propio en Cloudflare con base D1. La dirección
+   viene fija acá y se puede pisar publicando sync-config.json en el repo, así
+   una mudanza de servidor no obliga a tocar computadora por computadora.
+   (Antes esto hablaba con Supabase. Se sacó entero: se caía por cuota y dejaba
+   al equipo sin sincronizar.)
    ========================================================================= */
+const SERVIDOR_POR_DEFECTO = 'https://ganga-sync.gangahome.workers.dev';
 
-/* ---------- Cloudflare Worker + D1 ---------- */
-const CF = {
+const SB = {
+  err:'', lastOk:0,
+  get on(){ return !!DB.cfg.url; },
   base(){ return String(DB.cfg.url||'').replace(/\/+$/,''); },
   sufijo(){ return DB.cfg.key? '?t='+encodeURIComponent(DB.cfg.key) : ''; },
+
   async req(ruta,cuerpo){
     let r;
     const opt = cuerpo!==undefined
       ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cuerpo)}
       : {method:'GET'};
-    try{ r=await fetch(CF.base()+'/'+ruta+CF.sufijo(),opt); }
+    try{ r=await fetch(SB.base()+'/'+ruta+SB.sufijo(),opt); }
     catch(e){ SB.err='No hay conexión con el servidor'; SB.lastOk=0; throw new Error('No hay conexión con el servidor'); }
     const txt=await r.text();
     let j=null; try{ j=JSON.parse(txt); }catch(e){}
@@ -420,121 +423,41 @@ const CF = {
       SB.err=(j&&j.error)||txt.slice(0,300);
       throw new Error(String(SB.err).slice(0,160)||('HTTP '+r.status));
     }
-    SB.err=''; SB.faltaTabla=false; SB.lastOk=Date.now();
+    SB.err=''; SB.lastOk=Date.now();
     return j;
   },
-  /* deja los registros con la misma forma que devuelve Supabase */
+
   async normalizar(x){
     return {clave:x.clave, sector:x.sector||'', etiqueta:x.etiqueta||'', autor:x.autor||'',
             origen:x.origen||'', rev:num(x.rev), actualizado:x.actualizado||'',
             filas:await descomprimir(x.filas), meta:parseMeta(x.meta)};
   },
-  async cuerpoPut(payload){
-    return {...payload, filas:await comprimir(payload.filas)};
-  }
-};
+  async cuerpoPut(payload){ return {...payload, filas:await comprimir(payload.filas)}; },
 
-const SB = {
-  err:'', lastOk:0, faltaTabla:false,
-  /* Supabase necesita clave; el Worker propio se protege por origen, así que
-     alcanza con la dirección. */
-  get on(){ if(!DB.cfg.url) return false; return SB.modo==='supabase'? !!DB.cfg.key : true; },
-  /* Supabase o Worker propio: se decide por la dirección, sin que nadie configure nada */
-  get modo(){
-    if(DB.cfg.tipo==='supabase'||DB.cfg.tipo==='worker') return DB.cfg.tipo;   /* elegido a mano */
-    return /supabase\.co/i.test(DB.cfg.url||'')? 'supabase' : 'worker';
-  },
-  hdr(extra){ return {apikey:DB.cfg.key,Authorization:'Bearer '+DB.cfg.key,'Content-Type':'application/json',...(extra||{})}; },
-  url(qs){ return `${DB.cfg.url}/rest/v1/gh_reportes${qs||''}`; },
-  async req(qs,opt){
-    let r;
-    try{ r=await fetch(SB.url(qs),opt); }
-    catch(e){ SB.err='No hay conexión con el servidor'; SB.lastOk=0; throw new Error('No hay conexión con el servidor'); }
-    if(!r.ok){
-      const t=await r.text();
-      SB.err=t.slice(0,300);
-      SB.faltaTabla = r.status===404 || /does not exist|PGRST205|schema cache/i.test(t);
-      throw new Error(SB.faltaTabla?'La tabla gh_reportes todavía no existe en Supabase':(t.slice(0,140)||('HTTP '+r.status)));
-    }
-    SB.err=''; SB.faltaTabla=false; SB.lastOk=Date.now();
-    return r;
-  },
   /* índice: liviano, es lo que se consulta cada 20 segundos */
-  async index(){
-    if(SB.modo==='worker') return await CF.req('index');
-    let filas;
-    try{
-      const r=await SB.req('?select=clave,actualizado,autor,origen,rev',{headers:SB.hdr()});
-      filas=await r.json();
-    }catch(e){
-      if(!/rev/i.test(e.message)) throw e;
-      SB.sinRev=true;                                  /* tabla sin columna rev: comparo por fecha */
-      const r=await SB.req('?select=clave,actualizado,autor,origen',{headers:SB.hdr()});
-      filas=await r.json();
-    }
-    const out={};
-    filas.forEach(x=>out[x.clave]={ts:new Date(x.actualizado||0).getTime(),by:x.autor||'',src:x.origen||'',
-      rev:(x.rev==null?null:num(x.rev))});
-    return out;
-  },
+  async index(){ return await SB.req('index'); },
+
   async fetchKeys(keys){
     if(!keys.length) return [];
-    if(SB.modo==='worker'){
-      const crudas=await CF.req('get',{claves:keys});
-      return await Promise.all((crudas||[]).map(x=>CF.normalizar(x)));
-    }
-    const lista=keys.map(k=>'"'+String(k).replace(/"/g,'')+'"').join(',');
-    const r=await SB.req('?select=*&clave=in.('+encodeURIComponent(lista)+')',{headers:SB.hdr()});
-    return await r.json();
+    const crudas=await SB.req('get',{claves:keys});
+    return await Promise.all((crudas||[]).map(x=>SB.normalizar(x)));
   },
   async fetchOne(key){
-    if(SB.modo==='worker'){
-      const crudas=await CF.req('get',{claves:[key]});
-      return (crudas&&crudas.length)? await CF.normalizar(crudas[0]) : null;
-    }
-    const r=await SB.req('?select=*&clave=eq.'+encodeURIComponent(key),{headers:SB.hdr()});
-    const a=await r.json(); return a[0]||null;
+    const crudas=await SB.req('get',{claves:[key]});
+    return (crudas&&crudas.length)? await SB.normalizar(crudas[0]) : null;
   },
-  async upsert(payload){
-    if(SB.modo==='worker'){
-      const actual=await CF.req('get',{claves:[payload.clave]});
-      const rev=(actual&&actual.length)? num(actual[0].rev) : 0;
-      const cuerpo=await CF.cuerpoPut({...payload,rev:rev+1});
-      if(!(actual&&actual.length)) return !!(await CF.req('put',{modo:'nuevo',payload:cuerpo})).aplicado;
-      return !!(await CF.req('put',{modo:'cas',revEsperada:rev,payload:cuerpo})).aplicado;
-    }
-    await SB.req('?on_conflict=clave',{method:'POST',
-      headers:SB.hdr({Prefer:'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify([payload])});
-    return true;
-  },
-  /* alta sólo si no existe: devuelve true si la creó esta computadora */
+  /* alta sólo si no existe: true si la creó esta computadora */
   async insertarNuevo(payload){
-    if(SB.modo==='worker'){
-      const r=await CF.req('put',{modo:'nuevo',payload:await CF.cuerpoPut(payload)});
-      return !!(r&&r.aplicado);
-    }
-    const r=await SB.req('?on_conflict=clave',{method:'POST',
-      headers:SB.hdr({Prefer:'resolution=ignore-duplicates,return=representation'}),body:JSON.stringify([payload])});
-    const a=await r.json().catch(()=>[]);
-    return Array.isArray(a)&&a.length>0;
+    const r=await SB.req('put',{modo:'nuevo',payload:await SB.cuerpoPut(payload)});
+    return !!(r&&r.aplicado);
   },
-  /* actualiza SÓLO si nadie más lo tocó desde que lo leímos (compare-and-swap sobre rev) */
+  /* actualiza SÓLO si nadie más lo tocó desde que lo leímos (compare-and-swap) */
   async actualizarSiIntacto(key,rev,payload){
-    if(SB.modo==='worker'){
-      const r=await CF.req('put',{modo:'cas',revEsperada:num(rev)||0,
-        payload:await CF.cuerpoPut({...payload,clave:key})});
-      return !!(r&&r.aplicado);
-    }
-    const r=await SB.req('?clave=eq.'+encodeURIComponent(key)+'&rev=eq.'+(rev||0),
-      {method:'PATCH',headers:SB.hdr({Prefer:'return=representation'}),body:JSON.stringify(payload)});
-    const a=await r.json().catch(()=>[]);
-    return Array.isArray(a)&&a.length>0;
+    const r=await SB.req('put',{modo:'cas',revEsperada:num(rev)||0,
+      payload:await SB.cuerpoPut({...payload,clave:key})});
+    return !!(r&&r.aplicado);
   },
-  async remove(key){
-    if(SB.modo==='worker'){ await CF.req('del',{clave:key}); return true; }
-    await SB.req('?clave=eq.'+encodeURIComponent(key),{method:'DELETE',headers:SB.hdr()});
-    return true;
-  }
+  async remove(key){ await SB.req('del',{clave:key}); return true; }
 };
 
 const SYNC={ timer:null, ms:20000, corriendo:false, ultimo:0, pendiente:new Set() };
@@ -546,7 +469,7 @@ function setSync(cls,txt,tit){
 }
 function estadoSync(){
   if(!SB.on){ setSync('off','Local','Los datos quedan sólo en esta computadora. Clic para conectar al equipo.'); return; }
-  if(SB.err||SB.faltaTabla){ setSync('err','Error de sync',SB.err||'Falta crear la tabla'); return; }
+  if(SB.err){ setSync('err','Error de sync',SB.err); return; }
   if(!SB.lastOk){ setSync('on','Conectando…','Buscando los datos del equipo'); return; }
   const seg=Math.round((Date.now()-SB.lastOk)/1000);
   setSync('on', seg<90?'En línea':'Hace '+Math.round(seg/60)+' min',
@@ -557,31 +480,41 @@ function estadoSync(){
    mudamos de servidor, cada computadora lo adopta sola en la próxima carga:
    nadie tiene que ir máquina por máquina pegando la dirección nueva.
    El número de versión es lo que decide: sólo se adopta si es mayor al guardado. */
+/* Al cambiar de servidor, lo que esta computadora tiene localmente todavía no
+   está allá. Sin esto pasarían dos cosas malas: el servidor nuevo quedaría
+   vacío, y peor, la app leería "estaba en el servidor y ya no está" como un
+   borrado hecho por otro y se llevaría puestos los datos locales.
+   Así que se marcan todos como propios y pendientes de subir. */
+function prepararServidorNuevo(){
+  Object.keys(DB.datasets).forEach(k=>{
+    const d=DB.datasets[k];
+    d.remoto=false; d.rev=0; if((d.rows||[]).length) d.pendiente=true;
+  });
+  saveLocal();
+}
+
 async function autoConfigServidor(){
+  /* 1) Cualquier computadora que todavía tenga guardado el Supabase viejo
+        (o nada) pasa al servidor del equipo, sin que nadie toque nada. */
+  const guardada=String(DB.cfg.url||'').replace(/\/+$/,'');
+  if(!guardada || /supabase\.co/i.test(guardada)){
+    DB.cfg={url:SERVIDOR_POR_DEFECTO,key:'',version:num(DB.cfg.version||0)};
+    saveCfg();
+    if(guardada) prepararServidorNuevo();     /* venía de otro servidor: subir lo local */
+  }
+  /* 2) Si el repo publica un servidor más nuevo, se adopta. */
   try{
     const r=await fetch('sync-config.json',{cache:'no-store'});
     if(!r.ok) return false;
     const c=await r.json();
     if(!c||!c.url) return false;
     if(num(c.version||0) <= num(DB.cfg.version||0)) return false;
+    const distinto = String(c.url).replace(/\/+$/,'') !== String(DB.cfg.url||'').replace(/\/+$/,'');
     DB.cfg={url:String(c.url).replace(/\/+$/,''),key:c.key||'',version:num(c.version||0)};
     saveCfg();
+    if(distinto) prepararServidorNuevo();
     return true;
   }catch(e){ return false; }
-}
-
-async function autoDetectSupabase(){
-  if(SB.on) return false;
-  for(const f of ['catalogo-salud.html','flex-ops.html','clevel-dashboard-ml.html','plan-full.html','stock.html']){
-    try{
-      const r=await fetch(f,{cache:'no-store'}); if(!r.ok) continue;
-      const t=await r.text();
-      const u=(t.match(/https:\/\/[a-z0-9]{8,}\.supabase\.co/i)||[])[0];
-      const k=(t.match(/eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/)||[])[0];
-      if(u&&k&&!/xxxx/i.test(u)){ DB.cfg.url=u; DB.cfg.key=k; saveCfg(); return true; }
-    }catch(e){}
-  }
-  return false;
 }
 
 /* Trae del servidor sólo lo que cambió. silencioso = sin avisos si no hay novedades */
@@ -649,8 +582,7 @@ async function push(key){
     meta:{...(d.meta||{}),hist:DB.history.filter(h=>h.key===key).slice(0,6)}});
 
   for(let intento=0;intento<6;intento++){
-    let remoto=null;
-    try{ remoto=await SB.fetchOne(key); }catch(e){ if(SB.faltaTabla) throw e; throw e; }
+    const remoto=await SB.fetchOne(key);
 
     if(!remoto){
       const creada=await SB.insertarNuevo({...base(),filas:d.rows,rev:1});
@@ -659,19 +591,7 @@ async function push(key){
     }
 
     const filas=dedupe(key,(remoto.filas||[]).concat(d.rows));   /* lo mío pisa sólo la misma fila; el resto se conserva */
-    if(SB.sinRev){                                                /* tabla vieja sin columna rev: modo simple */
-      await SB.upsert({...base(),filas});
-      DB.datasets[key]={...d,rows:filas,ts:Date.now(),remoto:true}; saveLocal(); return true;
-    }
-    let ok=false;
-    try{
-      ok=await SB.actualizarSiIntacto(key,remoto.rev,{...base(),filas,rev:(num(remoto.rev)||0)+1});
-    }catch(e){
-      if(/rev/i.test(e.message)&&/column|does not exist|schema/i.test(e.message)){
-        SB.sinRev=true; continue;                                 /* falta la columna rev: sigo en modo simple */
-      }
-      throw e;
-    }
+    const ok=await SB.actualizarSiIntacto(key,remoto.rev,{...base(),filas,rev:(num(remoto.rev)||0)+1});
     if(ok){ DB.datasets[key]={...d,rows:filas,ts:Date.now(),remoto:true,rev:(num(remoto.rev)||0)+1,by:DB.meta.user||d.by||''};
             saveLocal(); return true; }
     await dormir(150+Math.random()*450);                          /* otro escribió mientras tanto: releo y combino */
@@ -1235,11 +1155,7 @@ async function subirVarios(keys){
   }
   busy(false);
   if(!err.length) toast('Listo: el resto del equipo ya lo puede ver');
-  else if(!SB.faltaTabla&&/conexión/i.test(err[0])) toast('Sin conexión: queda guardado y se sube solo cuando vuelva',true);
-  else if(SB.faltaTabla) dialog('Falta crear la tabla en Supabase',
-      `<p style="margin-top:0">Los datos quedaron guardados en esta computadora, pero todavía no se pueden compartir porque falta crear la tabla <b>gh_reportes</b>.</p>
-       <p style="font-size:12.5px;color:var(--ink2)">Entrá al editor SQL de Supabase, pegá esto y dale Run. Se hace una sola vez.</p>
-       <code class="sql">${esc(SQL_TABLA)}</code>`,[{t:'Entendido',cls:'primary'}]);
+  else if(/conexión/i.test(err[0])) toast('Sin conexión: queda guardado y se sube solo cuando vuelva',true);
   else toast('Se guardó local, pero falló al compartir: '+err[0],true);
   estadoSync();
 }
@@ -1729,7 +1645,7 @@ function viewResumen(){
   if(tabs.cur==='pan'){
     view.appendChild(kpiRow([
       {l:'Ingresos',ic:'💵',v:fMk(ing),s:`${fMk(div(ing,dias))} por día · ${dias} días`,d:delta(ing,pIng),hl:true},
-      mar>0?{l:'Margen ML',ic:'📊',v:fMk(mar),s:`${fP(div(mar,ing))} sobre ingresos`,d:deltaCov(mar,pMar,cur,prev,x=>x.margen)}:null,
+      mar>0?{l:'Margen ML',ic:'📊',v:fMk(mar),s:`${fP(div(mar,ing))} sobre ingresos · antes del costo del producto`,d:deltaCov(mar,pMar,cur,prev,x=>x.margen)}:null,
       {l:'Unidades',ic:'📦',v:fN(uni),s:`${fN(div(uni,dias))} por día`,d:delta(uni,pUni)},
       ped>0?{l:'Pedidos',ic:'🧾',v:fN(ped),s:`${nf2.format(div(uni,ped))} unidades por pedido`,d:delta(ped,pPed)}:null,
       {l:'Ticket promedio',ic:'🎫',v:fM(ticketU),s:'ingresos ÷ unidades vendidas',d:delta(ticketU,div(pIng,pUni))},
@@ -2423,7 +2339,7 @@ function viewCatalogo(){
 
   if(tabs.cur==='pan'){
     view.appendChild(kpiRow([
-      {l:'Publicaciones',ic:'🏷️',v:fN(base.length),s:`${fN(act.length)} activas · ${fN(pau.length)} pausadas`,hl:true},
+      {l:'Publicaciones',ic:'🏷️',v:fN(base.length),s:`${fN(act.length)} activas · ${fN(pau.length)} pausadas · del Excel de Análisis de Publicaciones`,hl:true},
       {l:'Con promoción',ic:'🎉',v:fN(base.filter(x=>x.promo).length),s:fP(div(base.filter(x=>x.promo).length,base.length))+' del catálogo'},
       {l:'Visitas',ic:'👁️',v:fNk(visTot),s:`${fN(div(visTot,act.length||1))} por publicación activa`},
       {l:'Conversión promedio',ic:'🛒',v:fP(convProm),s:'ponderada por visitas'},
@@ -2686,14 +2602,14 @@ function viewComercial(){
 
   const margenTot=sum(conCosto,x=>x.margenTotal), factCosto=sum(conCosto,x=>x.facturacion);
   view.appendChild(kpiRow([
-    {l:'Publicaciones',ic:'🏷️',v:fN(rows.length),s:`${fN(conCosto.length)} con costo cargado${rows.filter(x=>x.soloStock).length?` · ${fN(rows.filter(x=>x.soloStock).length)} sólo con stock`:''}`,hl:true},
+    {l:'Publicaciones',ic:'🏷️',v:fN(rows.length),s:`${fN(conCosto.length)} con costo cargado${rows.filter(x=>x.soloStock).length?` · ${fN(rows.filter(x=>x.soloStock).length)} sólo con stock`:''} · incluye las del Excel de costos, por eso puede no coincidir con Catálogo`,hl:true},
     CO.length?{l:'Margen promedio',ic:'📈',v:fP(div(margenTot,factCosto)),s:'ponderado por facturación'}:null,
     CO.length?{l:'Margen del período',ic:'💰',v:fMk(margenTot),s:`sobre ${fMk(factCosto)} facturados`}:null,
     CO.length?{l:'Retención de ML',ic:'🏦',v:fP(ret.tasa),s:ret.real?'calculada con tus ventas reales':'valor por defecto',inv:true}:null,
     CO.length&&haySt?{l:'Capital inmovilizado',ic:'🏦',v:fMk(sum(conCosto,x=>x.capital)),s:'stock × costo c/IVA',inv:true}:null,
     CO.length?{l:'Con margen negativo',ic:'🚨',v:fN(conCosto.filter(x=>x.margenU<0).length),s:'venden a pérdida',inv:true}:null,
     haySt?{l:'En Full',ic:'🏭',v:fN(sum(rows,x=>x.stockFull)),s:`${fN(sum(rows,x=>x.stockFlex))} en tu depósito · ${fN(sum(rows,x=>x.camino))} en camino`}:null,
-    haySt?{l:'Quiebres de stock',ic:'📦',v:fN(rows.filter(x=>x.stock<=0&&x.vendidos>0).length),s:'venden y están en cero',inv:true}:null,
+    haySt?{l:'Quiebres de stock',ic:'📦',v:fN(rows.filter(x=>x.stock<=0&&x.vendidos>0).length),s:'con ventas y sin stock en ningún lado (Logística cuenta sólo los que están en cero en Full)',inv:true}:null,
     {l:'Sin costo cargado',ic:'❓',v:fN(rows.length-conCosto.length),s:'no entran en el cálculo de margen',inv:true}
   ]));
 
@@ -3625,45 +3541,24 @@ function render(){
 }
 
 /* ------------------------------ diálogos ------------------------------ */
-const SQL_TABLA=`create table if not exists gh_reportes (
-  clave       text primary key,
-  sector      text,
-  etiqueta    text,
-  filas       jsonb,
-  meta        jsonb,
-  origen      text,
-  autor       text,
-  rev         bigint      default 0,
-  actualizado timestamptz default now()
-);
-alter table gh_reportes add column if not exists rev bigint default 0;
-alter table gh_reportes enable row level security;
-create policy "gh_reportes acceso" on gh_reportes
-  for all using (true) with check (true);`;
-
 function dlgSync(){
   const seg=SB.lastOk?Math.round((Date.now()-SB.lastOk)/1000):null;
-  dialog('Sincronización con el equipo',
-    `<p style="margin-top:0">Cuando está conectada, cada Excel que carga alguien queda disponible para todos: la app revisa el servidor cada 20 segundos y baja sólo lo que cambió, comprimido.</p>
+  const quien=[]; Object.keys(DB.datasets).forEach(k=>{ const by=DB.datasets[k].by; if(by&&!quien.includes(by)) quien.push(by); });
+  dialog('Trabajo en equipo',
+    `<p style="margin-top:0">Todas las computadoras del equipo comparten el mismo tablero. Cada Excel que carga alguien queda disponible para el resto: la app revisa el servidor cada 20 segundos y baja sólo lo que cambió, comprimido.</p>
+     <p style="font-size:12.5px;color:var(--ink2)">Si dos personas cargan el mismo reporte al mismo tiempo no se pisan: el servidor rechaza la escritura vieja y la app relee, combina y vuelve a guardar.</p>
      <div style="display:grid;gap:9px;margin:12px 0">
        <label style="font-size:12.5px;font-weight:600">Tu nombre <span style="font-weight:400;color:var(--muted)">— para que el resto vea quién cargó cada reporte</span>
          <input id="sbN" type="text" value="${esc(DB.meta.user||'')}" placeholder="Ej: Lucas" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
-       <label style="font-size:12.5px;font-weight:600">Dirección del servidor <span style="font-weight:400;color:var(--muted)">— el Worker de Cloudflare o el proyecto Supabase</span>
-         <input id="sbU" type="text" value="${esc(DB.cfg.url||'')}" placeholder="https://ganga-sync.tu-cuenta.workers.dev" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
-       <label style="font-size:12.5px;font-weight:600">Clave o token
-         <input id="sbK" type="password" value="${esc(DB.cfg.key||'')}" placeholder="el token del Worker, o la clave anon de Supabase" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-top:4px"></label>
      </div>
-     ${SB.modo==='supabase'?`<p style="font-size:12.5px;color:var(--ink2);margin-bottom:6px"><b>Una sola vez:</b> creá la tabla en el editor SQL de Supabase.</p>
-     <code class="sql">${esc(SQL_TABLA)}</code>`:`<p style="font-size:12.5px;color:var(--ink2);margin-bottom:6px">Servidor propio en Cloudflare. La base se prepara sola en el primer uso; no hay que crear ninguna tabla a mano.</p>`}
-     <p style="font-size:12px;color:var(--muted);margin-bottom:0">Estado: ${SB.on?(SB.err?'<b style="color:var(--crit)">con error</b>':'conectada'):'sin configurar'}${seg!=null?' · última verificación hace '+seg+' s':''}${SB.err?'<br>Último error: '+esc(SB.err.slice(0,180)):''}</p>`,
+     ${quien.length?`<p style="font-size:12.5px;color:var(--ink2)">Cargaron datos: <b>${esc(quien.slice(0,8).join(', '))}</b></p>`:''}
+     <p style="font-size:12px;color:var(--muted);margin-bottom:0">Estado: ${SB.err?'<b style="color:var(--crit)">con error</b>':(SB.lastOk?'en línea':'conectando…')}${seg!=null?' · última verificación hace '+seg+' s':''}${SB.err?'<br>Último error: '+esc(String(SB.err).slice(0,180)):''}
+     <br>Servidor: ${esc(SB.base().replace(/^https?:\/\//,''))}</p>`,
     [{t:'Cerrar'},
-     {t:'Trabajar solo local',fn:()=>{ DB.cfg={url:'',key:''}; saveCfg(); clearInterval(SYNC.timer); estadoSync(); toast('Modo local'); }},
-     {t:'Guardar y conectar',cls:'primary',fn:(b)=>{
-        DB.meta.user=$('#sbN',b).value.trim(); 
-        DB.cfg={url:$('#sbU',b).value.trim().replace(/\/+$/,''),key:$('#sbK',b).value.trim(),
-                version:num(DB.cfg.version||0)}; saveCfg(); saveLocal();
-        arrancarSync();
-        sync(false).then(()=>{ render(); if(SB.faltaTabla) toast('Falta crear la tabla gh_reportes en Supabase',true); });
+     {t:'Volver a sincronizar',fn:()=>sync(false)},
+     {t:'Guardar',cls:'primary',fn:(b)=>{
+        DB.meta.user=$('#sbN',b).value.trim(); saveLocal();
+        arrancarSync(); sync(false).then(()=>render());
      }}]);
 }
 function dlgDatos(){
@@ -3747,18 +3642,11 @@ async function init(){
   loadLocal();
   const h=location.hash.replace('#',''); if(VIEWS[h]) UI.sector=h;
   wire(); render(); estadoSync();
-  await autoConfigServidor();                 /* ¿el equipo cambió de servidor? */
-  if(!SB.on) await autoDetectSupabase();
-  if(SB.on){
-    setSync('on','Sincronizando…');
-    await sync(true);
-    arrancarSync();
-    if(SB.faltaTabla) setTimeout(()=>dialog('Falta un paso para trabajar en equipo',
-      `<p style="margin-top:0">Encontré la conexión a Supabase, pero todavía no existe la tabla <b>gh_reportes</b>, así que por ahora cada computadora ve sólo sus propios datos.</p>
-       <p style="font-size:12.5px;color:var(--ink2)">Copiá esto en el editor SQL de Supabase y dale Run. Es una sola vez para todo el equipo.</p>
-       <code class="sql">${esc(SQL_TABLA)}</code>`,[{t:'Después',},{t:'Ya lo hago',cls:'primary',fn:()=>sync(false)}]),900);
-    else if(!DB.meta.user) setTimeout(()=>toast('Poné tu nombre en el botón de sincronización para que el equipo sepa quién carga cada reporte'),1200);
-  } else estadoSync();
+  await autoConfigServidor();                 /* deja la computadora apuntando al servidor del equipo */
+  setSync('on','Sincronizando…');
+  await sync(true);
+  arrancarSync();
+  if(!DB.meta.user) setTimeout(()=>toast('Poné tu nombre en el botón de sincronización para que el equipo sepa quién carga cada reporte'),1200);
   if(!Object.keys(DB.datasets).length) setTimeout(()=>toast('Empezá cargando un Excel con el botón amarillo ⬆️'),700);
 }
 /* Si algo revienta durante el arranque, al menos que la pantalla lo diga
