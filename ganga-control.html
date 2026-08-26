@@ -407,7 +407,7 @@ const SERVIDOR_POR_DEFECTO = 'https://ganga-sync.gangahome.workers.dev';
 /* Sello de esta versión del tablero. El navegador cachea el archivo con fuerza,
    así que sin esto alguien puede quedarse días con una versión vieja sin notarlo
    —y creer que la app está rota cuando en realidad no se actualizó. */
-const BUILD = '20260826115333';
+const BUILD = '20260826123927';
 
 const SB = {
   err:'', lastOk:0,
@@ -678,14 +678,14 @@ const DATASETS = {
   dsp_diario:      {label:'DSP / Display · diario',    sector:'marketing', key:r=>r.fecha+'|'+r.campana+'|'+r.line_item, desc:'Detalle diario de campañas DSP'},
   ads_diario:      {label:'Ads (todos los tipos) · diario', sector:'marketing', key:r=>r.fecha+'|'+r.tipo+'|'+r.campana, desc:'Brand Ads / Product Ads / DSP día por día'},
   pads_campanas:   {label:'PADS · resumen por campaña',sector:'marketing', key:r=>r.campana,               desc:'Impresiones ganadas/perdidas y ROAS por campaña'},
-  publicaciones:   {label:'Publicaciones',             sector:'catalogo',  key:r=>r.mla,                   desc:'Catálogo con visitas, conversión y precio'},
-  pub_ventas:      {label:'Publicaciones con ventas',  sector:'catalogo',  key:r=>r.mla,                   desc:'Unidades y facturación por publicación'},
+  publicaciones:   {label:'Publicaciones',             sector:'catalogo',  key:r=>mlaKey(r.mla),           desc:'Catálogo con visitas, conversión y precio'},
+  pub_ventas:      {label:'Publicaciones con ventas',  sector:'catalogo',  key:r=>mlaKey(r.mla),           desc:'Unidades y facturación por publicación'},
   comp_diario:     {label:'Competencia · ventas diarias', sector:'negocio',key:r=>r.fecha,                 desc:'Ingresos y unidades diarias del competidor'},
   comp_publicaciones:{label:'Competencia · publicaciones', sector:'negocio',key:r=>r.titulo,               desc:'Ranking de publicaciones del competidor'},
-  stock:           {label:'Stock Full y Flex',         sector:'logistica', key:r=>r.mla+'|'+(r.variante||''), snapshot:true, desc:'Stock en Full y en depósito propio, por publicación y variante'},
-  comercial:       {label:'Rotación, margen y promos', sector:'comercial', key:r=>r.sku||r.mla||r.producto, desc:'Costos, precios, stock y promociones'},
+  stock:           {label:'Stock Full y Flex',         sector:'logistica', key:r=>mlaKey(r.mla)+'|'+(r.variante||''), snapshot:true, desc:'Stock en Full y en depósito propio, por publicación y variante'},
+  comercial:       {label:'Rotación, margen y promos', sector:'comercial', key:r=>String(r.sku||'').trim()||mlaKey(r.mla)||r.producto, desc:'Costos, precios, stock y promociones'},
   acciones:        {label:'Plan de acción por producto', sector:'atencion', key:r=>r.producto+'|'+r.detalle, desc:'Qué se detectó y qué se hizo con cada producto preguntado'},
-  costos:          {label:'Costos por producto',        sector:'comercial', key:r=>r.sku||r.mla,             desc:'Costo con y sin IVA por SKU — base fija para calcular margen'},
+  costos:          {label:'Costos por producto',        sector:'comercial', key:r=>String(r.sku||'').trim()||mlaKey(r.mla), desc:'Costo con y sin IVA por SKU — base fija para calcular margen'},
   full_plan:       {label:'Planificación de Full',       sector:'logistica', key:r=>r.sku||r.codigo,          snapshot:true, desc:'Stock en Full, en camino, sugerencia de reposición y nivel según Mercado Libre'}
 };
 const SECTORES = [
@@ -1221,6 +1221,29 @@ function mergeInto(key,newRows,mode){
   return dedupe(key,rowsOf(key).concat(newRows));
 }
 
+/* Los datos que ya están cargados vienen de versiones distintas de la app: unas
+   guardaban el MLA como "MLA1739202819" y otras como "1739202819". Con la clave
+   vieja, la misma publicación entraba dos veces y Catálogo y Comercial mostraban
+   el doble de todo. Esto lo normaliza y vuelve a unificar una sola vez.
+   Devuelve los conjuntos que tuvo que tocar, para volver a subirlos limpios. */
+function normalizarClaves(){
+  const tocados=[];
+  Object.keys(DB.datasets).forEach(k=>{
+    const d=DB.datasets[k]; const rows=d&&d.rows; if(!rows||!rows.length) return;
+    if(!('mla' in rows[0])) return;
+    const antes=rows.length;
+    rows.forEach(r=>{ if(r.mla!=null) r.mla=mlaKey(r.mla); });
+    /* el stock es una foto: si conviven dos generaciones del mismo export,
+       vale sólo la nueva (la que trae el sello v:2) */
+    let limpio=rows;
+    if(k==='stock' && rows.some(r=>r.v===2)) limpio=rows.filter(r=>r.v===2);
+    limpio=dedupe(k,limpio);
+    if(limpio.length!==antes){ d.rows=limpio; tocados.push(k+': '+antes+' → '+limpio.length); }
+  });
+  if(tocados.length) saveLocal();
+  return tocados;
+}
+
 /* sube uno por uno para poder combinar con la nube y avisar qué falló */
 async function subirVarios(keys){
   busy(true,'Compartiendo con el equipo…');
@@ -1719,7 +1742,7 @@ function viewResumen(){
   // postventa
   const post=rowsOf('postventa').filter(x=>inRange(x.fecha,r));
   const canc=post.filter(x=>x.tipo==='Cancelación').length, dev=post.filter(x=>x.tipo==='Devolución').length,
-        rec=post.filter(x=>x.mediacion).length;   /* los reclamos son un subconjunto de las devoluciones, igual que en el Excel */
+        rec=post.filter(x=>x.tipo==='Devolución'&&x.mediacion).length;   /* subconjunto de las devoluciones, igual que en el Excel y que en Atención */
   const preg=rowsOf('preguntas').filter(x=>inRange(x.fecha,r));
 
   if(tabs.cur==='pan'){
@@ -3743,6 +3766,12 @@ async function init(){
   const h=location.hash.replace('#',''); if(VIEWS[h]) UI.sector=h;
   wire(); render(); estadoSync();
   await chequearVersion();                    /* ¿el navegador quedó con una versión vieja? */
+  const limpiados=normalizarClaves();         /* duplicados de versiones anteriores */
+  if(limpiados.length){
+    limpiados.forEach(x=>{ const k=x.split(':')[0]; if(DB.datasets[k]) DB.datasets[k].pendiente=true; });
+    console.info('Publicaciones duplicadas unificadas →', limpiados.join(' · '));
+    setTimeout(()=>toast('Se unificaron publicaciones que estaban duplicadas por cargas viejas'),1500);
+  }
   await autoConfigServidor();                 /* deja la computadora apuntando al servidor del equipo */
   setSync('on','Sincronizando…');
   await sync(true);
