@@ -460,7 +460,7 @@ const SB = {
   async remove(key){ await SB.req('del',{clave:key}); return true; }
 };
 
-const SYNC={ timer:null, ms:20000, corriendo:false, ultimo:0, pendiente:new Set() };
+const SYNC={ timer:null, ms:20000, corriendo:false, pausado:false, ultimo:0, pendiente:new Set() };
 
 function setSync(cls,txt,tit){
   const b=$('#syncBtn'); if(!b) return;
@@ -521,6 +521,7 @@ async function autoConfigServidor(){
 async function sync(silencioso){
   if(!SB.on){ estadoSync(); return 0; }
   if(SYNC.corriendo) return 0;
+  if(SYNC.pausado){ estadoSync(); return 0; }   /* hay una carga de Excel en curso */
   SYNC.corriendo=true;
   try{
     /* primero reintento lo que quedó sin subir (por ejemplo, se cargó sin internet) */
@@ -532,6 +533,7 @@ async function sync(silencioso){
     Object.keys(idx).forEach(k=>{
       const loc=DB.datasets[k], rem=idx[k];
       if(!loc){ bajar.push(k); return; }
+      if(loc.pendiente) return;                                        /* tiene cambios míos sin subir: no se pisa */
       if(rem.rev!=null){ if(num(loc.rev)!==rem.rev) bajar.push(k); }   /* versión: no depende del reloj de cada compu */
       else if((loc.ts||0) < rem.ts-200) bajar.push(k);
     });
@@ -586,13 +588,14 @@ async function push(key){
 
     if(!remoto){
       const creada=await SB.insertarNuevo({...base(),filas:d.rows,rev:1});
-      if(creada){ DB.datasets[key]={...d,ts:Date.now(),remoto:true,rev:1,by:DB.meta.user||d.by||''}; saveLocal(); return true; }
+      if(creada){ DB.datasets[key]={...d,ts:Date.now(),remoto:true,rev:1,pendiente:false,by:DB.meta.user||d.by||''}; saveLocal(); return true; }
       await dormir(120+Math.random()*300); continue;   /* otro la creó primero: reintento como actualización */
     }
 
     const filas=dedupe(key,(remoto.filas||[]).concat(d.rows));   /* lo mío pisa sólo la misma fila; el resto se conserva */
     const ok=await SB.actualizarSiIntacto(key,remoto.rev,{...base(),filas,rev:(num(remoto.rev)||0)+1});
-    if(ok){ DB.datasets[key]={...d,rows:filas,ts:Date.now(),remoto:true,rev:(num(remoto.rev)||0)+1,by:DB.meta.user||d.by||''};
+    if(ok){ DB.datasets[key]={...d,rows:filas,ts:Date.now(),remoto:true,rev:(num(remoto.rev)||0)+1,
+                              pendiente:false,by:DB.meta.user||d.by||''};
             saveLocal(); return true; }
     await dormir(150+Math.random()*450);                          /* otro escribió mientras tanto: releo y combino */
   }
@@ -610,7 +613,10 @@ function arrancarSync(){
 
 function setDataset(key,rows,src,meta){
   const prev=DB.datasets[key]||{};
-  DB.datasets[key]={rows,ts:Date.now(),src:src||'',by:DB.meta.user||'',meta:meta||{},remoto:!!prev.remoto};
+  DB.datasets[key]={rows,ts:Date.now(),src:src||'',by:DB.meta.user||'',meta:meta||{},
+                    remoto:!!prev.remoto,
+                    rev:num(prev.rev),      /* conservar la versión: si no, el refresco lo toma por desactualizado */
+                    pendiente:true};        /* hay cambios locales que todavía no están en el servidor */
   DB.history.unshift({ts:Date.now(),key,label:(DATASETS[key]||{}).label||key,rows:rows.length,src:src||'',by:DB.meta.user||''});
   DB.history=DB.history.slice(0,80);
   saveLocal();
@@ -1147,12 +1153,15 @@ function mergeInto(key,newRows,mode){
 /* sube uno por uno para poder combinar con la nube y avisar qué falló */
 async function subirVarios(keys){
   busy(true,'Compartiendo con el equipo…');
+  SYNC.pausado=true;                       /* que el refresco no se meta en el medio */
   const err=[];
-  for(const k of keys){
-    try{ await push(k); }
-    catch(e){ err.push(((DATASETS[k]||{}).label||k)+': '+e.message);
-              if(DB.datasets[k]) DB.datasets[k].pendiente=true; saveLocal(); }
-  }
+  try{
+    for(const k of keys){
+      try{ await push(k); if(DB.datasets[k]) DB.datasets[k].pendiente=false; saveLocal(); }
+      catch(e){ err.push(((DATASETS[k]||{}).label||k)+': '+e.message);
+                if(DB.datasets[k]) DB.datasets[k].pendiente=true; saveLocal(); }
+    }
+  } finally { SYNC.pausado=false; }
   busy(false);
   if(!err.length) toast('Listo: el resto del equipo ya lo puede ver');
   else if(/conexión/i.test(err[0])) toast('Sin conexión: queda guardado y se sube solo cuando vuelva',true);
