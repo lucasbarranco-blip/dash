@@ -731,38 +731,9 @@ function mesIso(v,fallbackYear){
 
 /* ------------------------- detectores por hoja ------------------------- */
 /* cada uno devuelve [{key, rows}] o null */
-const SNIFFERS = [
-
-/* --- Plan de acción sobre productos preguntados (hoja resumen de Preguntas) --- */
-(nm,mx)=>{
-  const rows=tabular(mx,['Producto','Preguntas','Accion'],o=>{
-    const p=String(col(o,'Producto')||'').trim(); if(!p) return null;
-    const n=num(col(o,'Preguntas'));
-    return {producto:p, preguntas:n, detalle:String(col(o,'En especifico','En específico','Detalle')||'').trim(),
-      accion:String(col(o,'Accion','Acción')||'').trim(), mes:String(col(o,'Mes')||'').trim()};
-  });
-  return rows? [{key:'acciones',rows}] : null;
-},
-
-/* --- Base de preguntas --- */
-(nm,mx)=>{
-  const rows=tabular(mx,['Texto de la pregunta','Fecha','Estado'],o=>{
-    const d=parseFecha(col(o,'Fecha')); if(!d) return null;
-    const pub=mlaKey(col(o,'Nro. de Publicación','Nro de Publicacion','Publicación'));
-    const t=tiempoSeg(col(o,'Tiempo de respuesta'));
-    return {ts:d.getTime(), fecha:iso(d), hora:d.getHours(), estado:String(col(o,'Estado')||'').trim(),
-      mla:pub, titulo:String(col(o,'Título de la Publicación','Titulo')||'').trim(),
-      usuario:String(col(o,'Nombre del usuario','Usuario')||'').trim(),
-      pregunta:String(col(o,'Texto de la pregunta')||'').trim().slice(0,240),
-      respuesta:String(col(o,'Texto de la respuesta')||'').trim().slice(0,240),
-      seg:t, compra:bool(col(o,'Efectuó compra','Efectuo compra')),
-      mes:String(col(o,'Mes')||'').trim(), categoria:String(col(o,'Categoría','Categoria')||'Sin clasificar').trim()};
-  });
-  return rows? [{key:'preguntas',rows}] : null;
-},
-
-/* --- Base postventa (cancelaciones / devoluciones / reclamos) --- */
-(nm,mx)=>{
+/* Filas de postventa: lo usan tanto el export de Ventas de ML como la hoja
+   "Base de Cancelaciones + Reclamos" del Excel de Resultados. */
+function snifPostventa(nm,mx){
   const rows=tabular(mx,['# de venta','Fecha de venta','Estado'],o=>{
     const d=parseFecha(col(o,'Fecha de venta'));
     const est=String(col(o,'Estado')||'').trim();
@@ -797,7 +768,102 @@ const SNIFFERS = [
       motivo:String(col(o,'Motivo_Agrupado','Motivo')||'Motivo no especificado').trim()};
   });
   return rows? [{key:'postventa',rows}] : null;
+}
+
+const SNIFFERS = [
+
+/* --- Plan de acción sobre productos preguntados (hoja resumen de Preguntas) --- */
+(nm,mx)=>{
+  const rows=tabular(mx,['Producto','Preguntas','Accion'],o=>{
+    const p=String(col(o,'Producto')||'').trim(); if(!p) return null;
+    const n=num(col(o,'Preguntas'));
+    return {producto:p, preguntas:n, detalle:String(col(o,'En especifico','En específico','Detalle')||'').trim(),
+      accion:String(col(o,'Accion','Acción')||'').trim(), mes:String(col(o,'Mes')||'').trim()};
+  });
+  return rows? [{key:'acciones',rows}] : null;
 },
+
+/* --- Base de preguntas --- */
+(nm,mx)=>{
+  const rows=tabular(mx,['Texto de la pregunta','Fecha','Estado'],o=>{
+    const d=parseFecha(col(o,'Fecha')); if(!d) return null;
+    const pub=mlaKey(col(o,'Nro. de Publicación','Nro de Publicacion','Publicación'));
+    const t=tiempoSeg(col(o,'Tiempo de respuesta'));
+    return {ts:d.getTime(), fecha:iso(d), hora:d.getHours(), estado:String(col(o,'Estado')||'').trim(),
+      mla:pub, titulo:String(col(o,'Título de la Publicación','Titulo')||'').trim(),
+      usuario:String(col(o,'Nombre del usuario','Usuario')||'').trim(),
+      pregunta:String(col(o,'Texto de la pregunta')||'').trim().slice(0,240),
+      respuesta:String(col(o,'Texto de la respuesta')||'').trim().slice(0,240),
+      seg:t, compra:bool(col(o,'Efectuó compra','Efectuo compra')),
+      mes:String(col(o,'Mes')||'').trim(), categoria:String(col(o,'Categoría','Categoria')||'Sin clasificar').trim()};
+  });
+  return rows? [{key:'preguntas',rows}] : null;
+},
+
+/* --- Ventas por día desde el export de VENTAS de Mercado Libre ---
+   Este archivo (20260819_Ventas_AR_Mercado_Libre_y_Mercado_Shops…) trae una fila
+   por venta y llega hasta HOY, mientras que el Excel de Resultados suele estar
+   cortado varios días antes. De acá sale la evolución diaria actualizada.
+
+   Cómo viene armado, que es lo que complica leerlo:
+   · una venta simple ocupa UNA fila con todo;
+   · un paquete de varios productos ocupa una fila "cabecera" con los importes y
+     la provincia, y después una fila por producto con las unidades pero sin
+     importes. Por eso los pedidos y la facturación se cuentan en las cabeceras,
+     y las unidades en las filas de producto.
+   · hay tres columnas llamadas "Estado" y tres "Unidades", así que las columnas
+     se ubican por posición y no por nombre. */
+(nm,mx)=>{
+  const MESES={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,
+               agosto:8,septiembre:9,setiembre:9,octubre:10,noviembre:11,diciembre:12};
+  const fechaEs=v=>{
+    const m=String(v==null?'':v).match(/(\d{1,2})\s+de\s+([a-zA-Zá-úÁ-Ú]+)\s+de\s+(\d{4})/);
+    if(!m) return '';
+    const mes=MESES[norm(m[2])]; if(!mes) return '';
+    return m[3]+'-'+String(mes).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0');
+  };
+  /* fila de encabezados */
+  let h=-1;
+  for(let i=0;i<Math.min(mx.length,30);i++){
+    const f=(mx[i]||[]).map(norm);
+    if(f.includes('# de venta')&&f.includes('fecha de venta')&&f.some(c=>c.startsWith('ingresos por productos'))){ h=i; break; }
+  }
+  if(h<0) return null;
+  const H=(mx[h]||[]).map(norm);
+  const ix=t=>H.findIndex(c=>c===norm(t)||c.startsWith(norm(t)));
+  const cVenta=ix('# de venta'), cFecha=ix('fecha de venta'), cEstado=ix('estado'),
+        cUnid=ix('unidades'), cProd=ix('ingresos por productos'), cTotal=ix('total (ars)'),
+        cPub=ix('# de publicacion'), cCiudad=ix('ciudad');
+  /* la provincia es la columna "Estado" que viene DESPUÉS de "Ciudad" */
+  const cProv=H.findIndex((c,i)=>c==='estado'&&i>cCiudad&&cCiudad>=0);
+  if(cVenta<0||cFecha<0||cProd<0||cProv<0) return null;
+
+  /* el reporte se descarga a mitad del día: ese último día está incompleto y
+     ensuciaría el gráfico, así que no se toma */
+  let corte='';
+  for(let i=0;i<h;i++){ const t=String((mx[i]||[])[0]||''); if(/ventas al/i.test(t)){ corte=fechaEs(t); break; } }
+
+  const D=new Map();
+  const de=f=>{ let d=D.get(f); if(!d){ d={fecha:f,ingresos:0,margen:0,pedidos:0,unidades:0}; D.set(f,d);} return d; };
+  for(let i=h+1;i<mx.length;i++){
+    const r=mx[i]||[]; const venta=String(r[cVenta]==null?'':r[cVenta]).trim(); if(!venta) continue;
+    const f=fechaEs(r[cFecha]); if(!f||f===corte) continue;
+    const est=norm(r[cEstado]);
+    if(est.includes('cancel')||est.includes('devoluc')) continue;      /* no son facturación */
+    const d=de(f);
+    if(String(r[cProv]==null?'':r[cProv]).trim()){                     /* cabecera o venta simple: un pedido */
+      d.pedidos++; d.ingresos+=num(r[cProd]); d.margen+=num(r[cTotal]);
+    }
+    if(cPub>=0 && String(r[cPub]==null?'':r[cPub]).trim()) d.unidades+=num(r[cUnid]);
+  }
+  const rows=Array.from(D.values()).filter(x=>x.ingresos>0||x.unidades>0).sort((a,b)=>a.fecha<b.fecha?-1:1);
+  if(!rows.length) return null;
+  /* la misma hoja alimenta también los casos de postventa */
+  return [{key:'ventas_dia',rows}].concat(snifPostventa(nm,mx)||[]);
+},
+
+/* --- Base postventa (cancelaciones / devoluciones / reclamos) --- */
+snifPostventa,
 
 /* --- PADS detalle diario (hoja Datos de Seguimiento Pauta) --- */
 (nm,mx)=>{
