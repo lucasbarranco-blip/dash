@@ -108,6 +108,25 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
 .pack-line input[type=text]{min-width:150px}
 .drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;color:var(--tx2);cursor:pointer}
 .drop:hover{border-color:var(--acc);color:var(--tx)}
+
+/* calendario */
+.cal-head{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+.cal-head div{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx3);text-align:center}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.cd{min-height:92px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:5px;cursor:pointer;transition:.12s}
+.cd:hover{border-color:var(--acc)}
+.cd.off{background:transparent;border-color:transparent;cursor:default}
+.cd.hoy{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.cd-n{font-size:12px;color:var(--tx2);margin-bottom:4px}
+.cd.hoy .cd-n{color:var(--acc);font-weight:700}
+.ev{font-size:11px;padding:2px 5px;border-radius:5px;margin-bottom:3px;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;background:rgba(59,130,246,.16);color:#93c5fd}
+.ev.preparando,.ev.enviado{background:rgba(245,158,11,.16);color:#fcd34d}
+.ev.recibido{background:rgba(34,197,94,.15);color:#86efac}
+.ev.cancelado{background:rgba(154,163,181,.13);color:var(--tx3);text-decoration:line-through}
+.ev.hist{background:rgba(139,92,246,.15);color:#c4b5fd}
+.ev.mas{background:none;color:var(--tx3)}
+#navAlertas{margin-left:5px}
 </style>
 </head>
 <body>
@@ -127,8 +146,11 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
     <button data-p="movimientos">Movimientos</button>
     <button data-p="carga">Ingresos y ajustes</button>
     <button data-p="remitos">Envíos y tránsito</button>
+    <button data-p="alertas">Alertas <span id="navAlertas" class="tag bad" style="display:none"></span></button>
+    <button data-p="calendario">Calendario</button>
     <button data-p="reconcil">Pegar bases de ML</button>
     <button data-p="maestro">Maestro SKU</button>
+    <button data-p="config">Configuración</button>
   </nav>
 </header>
 
@@ -277,6 +299,62 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
   </div>
 </section>
 
+<!-- ================= ALERTAS ================= -->
+<section class="page" id="p-alertas">
+  <div class="kpis" id="kpisAlertas"></div>
+  <div class="card">
+    <div class="bar">
+      <h3 style="margin:0">Stock por debajo del mínimo</h3>
+      <span class="muted2" id="alUmbrales"></span>
+      <div class="grow"></div>
+      <select id="alDep">
+        <option value="">Full y Envío Pack</option>
+        <option value="FULL">Solo Full</option>
+        <option value="PACK">Solo Envío Pack</option>
+      </select>
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="alSoloVenta"> solo los que vendieron en 30d</label>
+      <button class="btn sm" id="btnAlCsv">CSV</button>
+      <button class="btn sm" id="btnAlMail">Ver el mail</button>
+    </div>
+    <div id="alMsg"></div>
+    <div class="tblwrap"><table id="tAl"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ================= CALENDARIO ================= -->
+<section class="page" id="p-calendario">
+  <div class="card">
+    <div class="bar">
+      <button class="btn sm" id="calPrev">‹</button>
+      <b id="calMes" style="min-width:170px;text-align:center"></b>
+      <button class="btn sm" id="calNext">›</button>
+      <button class="btn sm" id="calHoy">Hoy</button>
+      <div class="grow"></div>
+      <span class="muted2" id="calResumen"></span>
+      <button class="btn sm pri" id="btnAgNuevo">+ Agendar envío</button>
+    </div>
+    <div id="cal"></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h3>Próximos envíos</h3>
+      <div id="agProximos"></div>
+    </div>
+    <div class="card">
+      <h3>Historial de envíos a Full <small>importado del Excel</small></h3>
+      <div class="bar">
+        <input type="file" id="histFile" accept=".xlsx,.xls,.csv" hidden>
+        <button class="btn sm" id="btnHistImp">Importar Excel histórico</button>
+        <button class="btn sm" id="btnHistCsv">CSV</button>
+        <div class="grow"></div>
+        <span class="muted2" id="histResumen"></span>
+      </div>
+      <div id="histMsg"></div>
+      <div class="tblwrap" style="max-height:38vh"><table id="tHist"><thead></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</section>
+
 <!-- ================= PEGAR BASES DE ML ================= -->
 <section class="page" id="p-reconcil">
   <div class="card">
@@ -302,6 +380,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
         </select>
       </label>
       <div class="grow"></div>
+      <button class="btn" id="btnAuroraTraer" style="display:none">Traer de Aurora</button>
       <input type="file" id="recFile" accept=".xlsx,.xls,.csv" hidden>
       <button class="btn" id="btnRecFile">…o subir el Excel</button>
     </div>
@@ -343,6 +422,79 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
   </div>
 </section>
 
+<!-- ================= CONFIGURACION ================= -->
+<section class="page" id="p-config">
+  <div id="cfgMsg"></div>
+  <div class="grid2">
+    <div class="card">
+      <h3>Stock mínimo <small>cuándo salta la alarma</small></h3>
+      <p class="muted" style="margin-top:0">Si un SKU queda con menos unidades que esto, aparece en Alertas y entra en el mail. Cambialo acá, sin tocar el código.</p>
+      <div class="bar" style="align-items:flex-end">
+        <label class="fld">Mínimo en Full<input type="number" id="cfgMinFull" value="10" style="width:110px"></label>
+        <label class="fld">Mínimo en Envío Pack<input type="number" id="cfgMinPack" value="10" style="width:110px"></label>
+        <label class="fld">Mínimo en depósito propio<input type="number" id="cfgMinPropio" value="0" style="width:110px"></label>
+      </div>
+      <div class="bar">
+        <label class="pill" style="cursor:pointer"><input type="checkbox" id="cfgEnCamino" checked> contar lo que está en camino</label>
+        <label class="pill" style="cursor:pointer"><input type="checkbox" id="cfgSoloVentas"> avisar solo si vendió en los últimos 30 días</label>
+      </div>
+      <div class="hint">El mínimo por SKU del Maestro, cuando está cargado, manda sobre estos valores generales.</div>
+    </div>
+
+    <div class="card">
+      <h3>Aviso por mail</h3>
+      <div class="bar">
+        <label class="pill" style="cursor:pointer"><input type="checkbox" id="cfgAlertasOn" checked> mandar el aviso diario</label>
+        <label class="fld">Hora<input type="number" id="cfgHora" value="9" min="0" max="23" style="width:80px"></label>
+      </div>
+      <div id="cfgMails"></div>
+      <div class="bar">
+        <input type="text" id="cfgMailNuevo" placeholder="nombre@gangahome.com.ar" style="flex:1">
+        <button class="btn" id="btnMailAdd">Agregar</button>
+      </div>
+      <div class="hint">Destinatarios con el check tildado reciben el aviso. Los que estén sin tildar quedan guardados pero no reciben nada.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Aurora WMS <small>stock del depósito de Cardales, en vivo</small></h3>
+    <p class="muted" style="margin-top:0">
+      Aurora pide usuario y contraseña, así que la app no puede entrar sola. En su lugar hay un sincronizador
+      que corre en tu propia pestaña de Aurora, con la sesión que ya tenés abierta: trae el stock de todos los
+      artículos y lo deja acá. No guarda ninguna contraseña.
+    </p>
+    <div class="bar" style="align-items:flex-end">
+      <label class="fld" style="flex:1;min-width:260px">Dirección de Aurora
+        <input type="text" id="cfgAuroraUrl" placeholder="https://gangahome-cardales.aurorasuite.tech">
+      </label>
+      <label class="fld">Estados que cuentan como stock
+        <span class="chips" id="cfgAuroraEstados"></span>
+      </label>
+    </div>
+    <div class="bar">
+      <button class="btn pri" id="btnAuroraCopiar">Copiar el sincronizador</button>
+      <button class="btn" id="btnAuroraComo">Cómo se usa</button>
+      <div class="grow"></div>
+      <span class="muted2" id="cfgAuroraEstado"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Conexión</h3>
+    <div class="bar">
+      <span class="pill"><i class="dot" id="dotConn2"></i><span id="txtConn2"></span></span>
+      <span class="muted2" id="cfgProyecto"></span>
+      <div class="grow"></div>
+      <button class="btn sm" id="btnCfgConn">Cambiar Supabase</button>
+    </div>
+  </div>
+
+  <div class="bar">
+    <div class="grow"></div>
+    <button class="btn pri" id="btnCfgGuardar">Guardar configuración</button>
+  </div>
+</section>
+
 </main>
 
 <datalist id="dlSku"></datalist>
@@ -379,6 +531,16 @@ const ST = {
   ordenMa: { col: 'sku', dir: 1 },
   lineasRemito: [],
   recPend: null,
+  // v2
+  cfgApp: {
+    umbrales: { FULL: 10, PACK: 10, PROPIO: 0 },
+    alertas: { activas: true, hora: 9, solo_con_ventas: false, incluir_en_camino: true },
+    mails: [],
+  },
+  agenda: [],
+  hist: [],
+  aurora: [],
+  calRef: new Date(),
 };
 
 /* ------------------- utilidades ------------------- */
@@ -552,7 +714,128 @@ const DB = {
     if (ST.modo !== 'sb') return null;
     try { const r = await sbGet('stock_sync_estado?id=eq.ml&select=*'); return r[0] || null; } catch (e) { return null; }
   },
+
+  /* ---------- v2: configuracion ---------- */
+  async config() {
+    const base = { umbrales: { FULL: 10, PACK: 10, PROPIO: 0 }, alertas: { activas: true, hora: 9, solo_con_ventas: false, incluir_en_camino: true }, mails: [] };
+    if (ST.modo === 'sb') {
+      try {
+        const filas = await sbGet('stock_config?select=*');
+        const out = { ...base };
+        for (const f of filas) out[f.clave] = f.valor;
+        return out;
+      } catch (e) { return base; }
+    }
+    return { ...base, ...LOCAL.get('config', {}) };
+  },
+  async guardarConfig(cfg) {
+    if (ST.modo === 'sb') {
+      const filas = Object.entries(cfg).map(([clave, valor]) => ({ clave, valor, actualizado: hoy() }));
+      const r = await fetch(`${ST.cfg.url}/rest/v1/stock_config?on_conflict=clave`, {
+        method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(filas),
+      });
+      if (!r.ok) throw new Error(`config → ${r.status}`);
+    } else LOCAL.set('config', cfg);
+  },
+
+  /* ---------- v2: agenda de envios ---------- */
+  async agenda() {
+    if (ST.modo === 'sb') return await sbGet('stock_agenda?select=*&order=fecha&limit=2000');
+    return LOCAL.get('agenda', []);
+  },
+  async guardarAgenda(row) {
+    if (ST.modo === 'sb') {
+      if (row.id) { await sbPatch(`stock_agenda?id=eq.${row.id}`, row); return row.id; }
+      const r = await sbPost('stock_agenda', [row], 'return=representation');
+      return r?.[0]?.id;
+    }
+    const l = LOCAL.get('agenda', []);
+    if (row.id) { const i = l.findIndex(x => x.id === row.id); if (i >= 0) l[i] = { ...l[i], ...row }; }
+    else { row.id = LOCAL.get('agSeq', 1); LOCAL.set('agSeq', row.id + 1); l.push(row); }
+    LOCAL.set('agenda', l);
+    return row.id;
+  },
+  async borrarAgenda(id) {
+    if (ST.modo === 'sb') await sbDelete(`stock_agenda?id=eq.${id}`);
+    else LOCAL.set('agenda', LOCAL.get('agenda', []).filter(x => x.id !== id));
+  },
+
+  /* ---------- v2: historial de envios (backup, no toca el stock) ---------- */
+  async historial() {
+    if (ST.modo === 'sb') return await sbGet('stock_envios_hist?select=*&order=fecha.desc&limit=20000');
+    return LOCAL.get('hist', []);
+  },
+  async guardarHistorial(filas) {
+    if (!filas.length) return 0;
+    if (ST.modo === 'sb') {
+      let n = 0;
+      for (let i = 0; i < filas.length; i += 500) {
+        const lote = filas.slice(i, i + 500);
+        const r = await fetch(`${ST.cfg.url}/rest/v1/stock_envios_hist?on_conflict=fecha,sku,destino`, {
+          method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(lote),
+        });
+        if (!r.ok) throw new Error(`historial → ${r.status} ${(await r.text()).slice(0, 140)}`);
+        n += lote.length;
+      }
+      return n;
+    }
+    const l = LOCAL.get('hist', []);
+    const clave = f => `${f.fecha}|${f.sku}|${f.destino}`;
+    const idx = new Map(l.map(f => [clave(f), f]));
+    filas.forEach(f => idx.set(clave(f), f));
+    LOCAL.set('hist', Array.from(idx.values()));
+    return filas.length;
+  },
+
+  async aurora() {
+    if (ST.modo === 'sb') { try { return await sbGet('stock_aurora?select=*&limit=20000'); } catch (e) { return []; } }
+    return LOCAL.get('aurora', []);
+  },
+
+  async registrarAlertas(filas) {
+    if (!filas.length || ST.modo !== 'sb') return;
+    try { await sbPost('stock_alertas', filas); } catch (e) {}
+  },
 };
+
+/* ---------- umbrales efectivos ---------- */
+function umbralDe(r, dep) {
+  const u = ST.cfgApp.umbrales || {};
+  if (dep === 'FULL') return r.min_full > 0 ? r.min_full : (u.FULL || 0);
+  if (dep === 'PACK') return r.min_pack > 0 ? r.min_pack : (u.PACK || 0);
+  return u.PROPIO || 0;
+}
+function dispDe(r, dep) {
+  const conCamino = ST.cfgApp.alertas?.incluir_en_camino !== false;
+  if (dep === 'FULL') return r.full_u + (conCamino ? r.tr_full_u : 0);
+  if (dep === 'PACK') return r.pack_u + (conCamino ? r.tr_pack_u : 0);
+  return r.propio_u;
+}
+/* SKU por debajo del minimo, listo para la pantalla de Alertas y para el mail */
+function alertasDe(filas) {
+  const soloVenta = !!ST.cfgApp.alertas?.solo_con_ventas;
+  const out = [];
+  for (const r of filas) {
+    if (r.activo === false) continue;
+    for (const dep of ['FULL', 'PACK']) {
+      if (dep === 'FULL' && !r.canal_full) continue;
+      if (dep === 'PACK' && !r.canal_pack) continue;
+      const umb = umbralDe(r, dep);
+      if (umb <= 0) continue;
+      const disp = dispDe(r, dep);
+      if (disp >= umb) continue;
+      const vd = dep === 'FULL' ? r.u30_full / 30 : r.u30_pack / 30;
+      if (soloVenta && !(vd > 0)) continue;
+      out.push({
+        sku: r.sku, producto: r.producto, deposito: dep, unidades: disp, umbral: umb,
+        faltan: umb - disp, u30: dep === 'FULL' ? r.u30_full : r.u30_pack,
+        dias: vd > 0 ? disp / vd : null, propio: r.propio_u,
+        critico: disp <= 0,
+      });
+    }
+  }
+  return out.sort((a, b) => (a.critico === b.critico ? b.u30 - a.u30 : a.critico ? -1 : 1));
+}
 
 function calcPanoramaLocal() {
   const ma = LOCAL.get('maestro', []);
@@ -612,10 +895,15 @@ function derivar(r) {
   const cov  = vd  > 0 ? r.total_u / vd : null;
   let estado = 'ok', txt = 'OK';
   const vende = (r.u30 || 0) > 0;
+  const bajoFull = r.canal_full && umbralDe(r, 'FULL') > 0 && dispDe(r, 'FULL') < umbralDe(r, 'FULL');
+  const bajoPack = r.canal_pack && umbralDe(r, 'PACK') > 0 && dispDe(r, 'PACK') < umbralDe(r, 'PACK');
   if (r.total_u <= 0) { estado = vende ? 'quiebre' : 'sin'; txt = vende ? 'QUIEBRE' : 'Sin stock'; }
   else if ((r.canal_full && r.full_u + r.tr_full_u <= 0 && r.u30_full > 0) ||
            (r.canal_pack && r.pack_u + r.tr_pack_u <= 0 && r.u30_pack > 0)) { estado = 'quiebre_canal'; txt = 'Quiebre de canal'; }
-  else if ((r.min_full && r.full_u < r.min_full) || (r.min_pack && r.pack_u < r.min_pack)) { estado = 'bajo'; txt = 'Bajo mínimo'; }
+  else if (bajoFull || bajoPack) {
+    estado = 'bajo';
+    txt = bajoFull && bajoPack ? 'Bajo mínimo' : bajoFull ? 'Bajo mín. Full' : 'Bajo mín. Pack';
+  }
   else if (covF !== null && covF < 7) { estado = 'bajo'; txt = 'Full < 7 días'; }
   else if (covP !== null && covP < 7) { estado = 'bajo'; txt = 'Pack < 7 días'; }
   else if (!vende && r.total_u > 0) { estado = 'muerto'; txt = 'Sin ventas 30d'; }
@@ -1268,12 +1556,16 @@ function modalConfig() {
    ========================================================== */
 async function recargar() {
   try {
-    const [pan, ma, movs, rem, sync] = await Promise.all([
-      DB.panorama(), DB.maestro(), DB.movimientos(), DB.remitos(), DB.estadoSync(),
+    const [cfg, pan, ma, movs, rem, sync, ag, hist] = await Promise.all([
+      DB.config(), DB.panorama(), DB.maestro(), DB.movimientos(), DB.remitos(), DB.estadoSync(),
+      DB.agenda().catch(() => []), DB.historial().catch(() => []),
     ]);
-    ST.pan = pan; ST.maestro = ma; ST.movs = movs; ST.remitos = rem; ST.sync = sync;
+    ST.aurora = await DB.aurora().catch(() => []);
+    ST.cfgApp = cfg; ST.pan = pan; ST.maestro = ma; ST.movs = movs; ST.remitos = rem; ST.sync = sync;
+    ST.agenda = ag || []; ST.hist = hist || [];
     $('#dlSku').innerHTML = ST.pan.slice(0, 3000).map(r => `<option value="${esc(r.sku)}">${esc((r.producto || '').slice(0, 40))}</option>`).join('');
     pintarPanorama(); pintarMovs(); pintarRemitos(); pintarMaestro(); pintarUltimos(); pintarSync();
+    pintarAlertas(); pintarCalendario(); pintarHistorial(); pintarConfig();
   } catch (e) {
     toast('Error al leer: ' + e.message, 'err');
   }
@@ -1367,6 +1659,7 @@ function eventos() {
   $('#btnCfg').onclick = modalConfig;
   $('#modal').onclick = e => { if (e.target.id === 'modal') cerrarModal(); };
   $('#autor').oninput = e => { ST.autor = e.target.value.trim(); lsSet('stockops_autor', ST.autor); };
+  eventosV2();
 }
 
 async function leerArchivoRec(file) {
@@ -1412,6 +1705,568 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+/* ==========================================================
+   v2 · ALERTAS DE STOCK MINIMO
+   ========================================================== */
+function alertasFiltradas() {
+  const dep = $('#alDep')?.value || '';
+  const soloV = $('#alSoloVenta')?.checked;
+  let a = alertasDe(ST.pan.map(derivar));
+  if (dep) a = a.filter(x => x.deposito === dep);
+  if (soloV) a = a.filter(x => x.u30 > 0);
+  return a;
+}
+
+function pintarAlertas() {
+  if (!$('#tAl')) return;
+  const todas = alertasDe(ST.pan.map(derivar));
+  const filas = alertasFiltradas();
+  const u = ST.cfgApp.umbrales || {};
+  const enFull = todas.filter(x => x.deposito === 'FULL');
+  const enPack = todas.filter(x => x.deposito === 'PACK');
+  const criticos = todas.filter(x => x.critico);
+
+  $('#kpisAlertas').innerHTML = [
+    { c: 'bad', l: 'SKU en alerta', v: num(new Set(todas.map(x => x.sku)).size), s: todas.length + ' avisos (Full + Pack)' },
+    { c: 'full', l: 'Bajo mínimo en Full', v: num(enFull.length), s: 'mínimo ' + num(u.FULL || 0) + ' u' },
+    { c: 'pack', l: 'Bajo mínimo en Pack', v: num(enPack.length), s: 'mínimo ' + num(u.PACK || 0) + ' u' },
+    { c: 'warn', l: 'Sin una sola unidad', v: num(criticos.length), s: 'quiebre total' },
+    { c: '', l: 'Unidades para reponer', v: num(todas.reduce((a, x) => a + x.faltan, 0)), s: 'para llegar al mínimo' },
+  ].map(x => `<div class="kpi ${x.c}"><div class="lab">${x.l}</div><div class="val">${x.v}</div><div class="sub">${esc(x.s)}</div></div>`).join('');
+
+  const mails = (ST.cfgApp.mails || []).filter(m => m.activo);
+  $('#alUmbrales').innerHTML = `mínimo Full ${num(u.FULL || 0)} · Pack ${num(u.PACK || 0)} · ` +
+    (mails.length ? `avisa a ${mails.length} mail${mails.length > 1 ? 's' : ''}` : 'sin mails cargados') +
+    ' · <a href="#" id="lnkCfg">cambiar</a>';
+  const lnk = $('#lnkCfg');
+  if (lnk) lnk.onclick = e => { e.preventDefault(); irA('config'); };
+
+  $('#tAl thead').innerHTML = `<tr><th>SKU</th><th>Producto</th><th>Depósito</th><th class="num">Hay</th>
+    <th class="num">Mínimo</th><th class="num">Faltan</th><th class="num">Vta 30d</th><th class="num">Días</th>
+    <th class="num">En depósito propio</th><th>Estado</th></tr>`;
+  $('#tAl tbody').innerHTML = filas.slice(0, 600).map(x => `<tr>
+    <td class="mono">${esc(x.sku)}</td>
+    <td title="${esc(x.producto)}">${esc((x.producto || '').slice(0, 40))}</td>
+    <td><span class="tag ${x.deposito === 'FULL' ? 'info' : 'warn'}">${DEPS[x.deposito].nom}</span></td>
+    <td class="num"><b style="color:${x.critico ? 'var(--bad)' : 'var(--warn)'}">${num(x.unidades)}</b></td>
+    <td class="num muted">${num(x.umbral)}</td>
+    <td class="num">${num(x.faltan)}</td>
+    <td class="num">${num(x.u30)}</td>
+    <td class="num">${x.dias === null ? '<span class="muted2">—</span>' : dec(x.dias, 0)}</td>
+    <td class="num" style="color:${x.propio > 0 ? 'var(--propio)' : 'var(--tx3)'}">${num(x.propio)}</td>
+    <td>${x.critico ? '<span class="tag bad">SIN STOCK</span>' : '<span class="tag warn">bajo mínimo</span>'}</td>
+  </tr>`).join('') || `<tr><td colspan="10" class="muted" style="padding:26px;text-align:center">Ningún SKU por debajo del mínimo. 👌</td></tr>`;
+
+  const chip = $('#navAlertas');
+  if (chip) {
+    if (todas.length) { chip.style.display = ''; chip.textContent = todas.length; }
+    else chip.style.display = 'none';
+  }
+}
+
+/* Texto del aviso, igual al que sale por mail */
+function textoAlerta(filas) {
+  const hoyTxt = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const linea = x => `• ${x.sku} — ${(x.producto || '').slice(0, 45)} · ${DEPS[x.deposito].corto}: ${x.unidades} u (mínimo ${x.umbral}, faltan ${x.faltan})${x.propio > 0 ? ` · hay ${x.propio} en depósito` : ''}`;
+  const crit = filas.filter(x => x.critico), bajo = filas.filter(x => !x.critico);
+  return `Stock Ops · Ganga Home — alerta de stock mínimo (${hoyTxt})
+
+${filas.length} avisos: ${crit.length} sin stock y ${bajo.length} por debajo del mínimo.
+
+${crit.length ? 'SIN STOCK\n' + crit.map(linea).join('\n') + '\n\n' : ''}${bajo.length ? 'BAJO EL MÍNIMO\n' + bajo.map(linea).join('\n') : ''}
+
+Ver el detalle: ${location.href}`;
+}
+
+function modalMail() {
+  const filas = alertasFiltradas();
+  const mails = (ST.cfgApp.mails || []).filter(m => m.activo).map(m => m.email);
+  abrirModal(`<h3>Aviso de stock mínimo</h3>
+    <p class="muted">${mails.length ? 'Va a: ' + esc(mails.join(', ')) : 'Todavía no hay mails tildados en Configuración.'}</p>
+    <textarea rows="16" id="mailTxt" readonly>${esc(textoAlerta(filas))}</textarea>
+    <div class="bar" style="margin-top:12px">
+      <button class="btn" id="btnMailCopy">Copiar</button>
+      <div class="grow"></div>
+      <button class="btn pri" onclick="cerrarModal()">Cerrar</button></div>`);
+  $('#btnMailCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#mailTxt').value); toast('Copiado', 'ok'); }
+    catch (e) { $('#mailTxt').select(); toast('Seleccionado: copialo con Ctrl+C'); }
+  };
+}
+
+/* ==========================================================
+   v2 · CALENDARIO E HISTORIAL DE ENVIOS
+   ========================================================== */
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const EST_AG = {
+  planificado: { txt: 'planificado', tag: 'info' },
+  preparando: { txt: 'preparando', tag: 'warn' },
+  enviado: { txt: 'enviado', tag: 'warn' },
+  recibido: { txt: 'recibido', tag: 'ok' },
+  cancelado: { txt: 'cancelado', tag: 'mut' },
+};
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function pintarCalendario() {
+  const cont = $('#cal');
+  if (!cont) return;
+  const ref = ST.calRef;
+  const año = ref.getFullYear(), mes = ref.getMonth();
+  $('#calMes').textContent = MESES[mes][0].toUpperCase() + MESES[mes].slice(1) + ' ' + año;
+
+  const primero = new Date(año, mes, 1);
+  const arranque = (primero.getDay() + 6) % 7;          // lunes primero
+  const dias = new Date(año, mes + 1, 0).getDate();
+  const hoyIso = iso(new Date());
+
+  // eventos del mes: agenda + envios historicos agrupados por fecha
+  const porDia = new Map();
+  const push = (f, ev) => { if (!porDia.has(f)) porDia.set(f, []); porDia.get(f).push(ev); };
+  for (const a of ST.agenda) {
+    if (String(a.fecha).slice(0, 7) !== `${año}-${String(mes + 1).padStart(2, '0')}`) continue;
+    push(String(a.fecha).slice(0, 10), { tipo: 'agenda', ...a });
+  }
+  const histMes = new Map();
+  for (const h of ST.hist) {
+    const f = String(h.fecha).slice(0, 10);
+    if (f.slice(0, 7) !== `${año}-${String(mes + 1).padStart(2, '0')}`) continue;
+    if (!histMes.has(f)) histMes.set(f, { u: 0, skus: 0, destino: h.destino });
+    const x = histMes.get(f); x.u += h.unidades || 0; x.skus++;
+  }
+  for (const [f, x] of histMes) push(f, { tipo: 'hist', ...x });
+
+  let celdas = '';
+  for (let i = 0; i < arranque; i++) celdas += '<div class="cd off"></div>';
+  for (let d = 1; d <= dias; d++) {
+    const f = `${año}-${String(mes + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const evs = porDia.get(f) || [];
+    const hoyCls = f === hoyIso ? ' hoy' : '';
+    celdas += `<div class="cd${hoyCls}" data-f="${f}">
+      <div class="cd-n">${d}</div>
+      ${evs.slice(0, 3).map(e => e.tipo === 'agenda'
+        ? `<div class="ev ${e.estado}" data-ag="${e.id}" title="${esc(e.titulo || '')}">${e.destino === 'PACK' ? '📦' : '🏬'} ${esc((e.titulo || DEPS[e.destino]?.nom || 'Envío').slice(0, 18))}${e.unidades ? ' · ' + num(e.unidades) + 'u' : ''}</div>`
+        : `<div class="ev hist" title="Envío histórico">✔ ${num(e.u)} u · ${e.skus} SKU</div>`).join('')}
+      ${evs.length > 3 ? `<div class="ev mas">+${evs.length - 3}</div>` : ''}
+    </div>`;
+  }
+  cont.innerHTML = `<div class="cal-head">${DIAS.map(d => `<div>${d}</div>`).join('')}</div><div class="cal-grid">${celdas}</div>`;
+
+  cont.onclick = e => {
+    const ag = e.target.closest('[data-ag]');
+    if (ag) { editorAgenda(+ag.dataset.ag); return; }
+    const cd = e.target.closest('.cd[data-f]');
+    if (cd) editorAgenda(null, cd.dataset.f);
+  };
+
+  const delMes = ST.agenda.filter(a => String(a.fecha).slice(0, 7) === `${año}-${String(mes + 1).padStart(2, '0')}`);
+  const uHist = Array.from(histMes.values()).reduce((a, x) => a + x.u, 0);
+  $('#calResumen').textContent = `${delMes.length} envío${delMes.length === 1 ? '' : 's'} agendado${delMes.length === 1 ? '' : 's'}` +
+    (uHist ? ` · ${num(uHist)} u enviadas (histórico)` : '');
+
+  // proximos
+  const hoyD = hoyIso;
+  const prox = ST.agenda.filter(a => String(a.fecha).slice(0, 10) >= hoyD && a.estado !== 'cancelado')
+    .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).slice(0, 8);
+  $('#agProximos').innerHTML = !prox.length
+    ? '<p class="muted">No hay envíos agendados. Hacé clic en un día del calendario para agendar uno.</p>'
+    : prox.map(a => `<div class="bar" style="margin-bottom:6px">
+        <b>${new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</b>
+        <span class="tag ${a.destino === 'PACK' ? 'warn' : 'info'}">${DEPS[a.destino]?.nom || a.destino}</span>
+        <span>${esc(a.titulo || 'Envío')}</span>
+        ${a.unidades ? `<span class="muted2">${num(a.unidades)} u</span>` : ''}
+        ${a.bultos ? `<span class="muted2">${num(a.bultos)} bultos</span>` : ''}
+        <span class="tag ${EST_AG[a.estado]?.tag || 'mut'}">${EST_AG[a.estado]?.txt || a.estado}</span>
+        <div class="grow"></div>
+        <button class="btn sm gh" data-ed="${a.id}">editar</button></div>`).join('');
+  $('#agProximos').onclick = e => { if (e.target.dataset.ed) editorAgenda(+e.target.dataset.ed); };
+}
+
+function editorAgenda(id, fecha) {
+  const a = id ? ST.agenda.find(x => x.id === id) : null;
+  const f = a ? String(a.fecha).slice(0, 10) : (fecha || iso(new Date()));
+  abrirModal(`<h3>${a ? 'Envío del ' + f : 'Agendar envío'}</h3>
+    <div class="grid2">
+      <label class="fld">Fecha<input type="date" id="agFecha" value="${f}"></label>
+      <label class="fld">Destino<select id="agDest">
+        <option value="FULL"${a?.destino === 'FULL' || !a ? ' selected' : ''}>Full</option>
+        <option value="PACK"${a?.destino === 'PACK' ? ' selected' : ''}>Envío Pack</option>
+        <option value="OTRO"${a?.destino === 'OTRO' ? ' selected' : ''}>Otro</option>
+      </select></label>
+      <label class="fld">Título<input type="text" id="agTit" value="${esc(a?.titulo || '')}" placeholder="Envío semanal"></label>
+      <label class="fld">Estado<select id="agEst">
+        ${Object.entries(EST_AG).map(([k, v]) => `<option value="${k}"${a?.estado === k ? ' selected' : ''}>${v.txt}</option>`).join('')}
+      </select></label>
+      <label class="fld">Unidades<input type="number" id="agUnid" value="${a?.unidades ?? ''}"></label>
+      <label class="fld">Bultos<input type="number" id="agBultos" value="${a?.bultos ?? ''}"></label>
+      <label class="fld">N° de remito<input type="text" id="agRem" value="${esc(a?.remito || '')}"></label>
+      <label class="fld">Detalle<input type="text" id="agDet" value="${esc(a?.detalle || '')}"></label>
+    </div>
+    <div class="bar" style="margin-top:12px">
+      ${a ? '<button class="btn" id="agDel">Borrar</button>' : ''}
+      <div class="grow"></div>
+      <button class="btn" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn pri" id="agOk">Guardar</button></div>`);
+  $('#agOk').onclick = async () => {
+    const row = {
+      fecha: $('#agFecha').value, destino: $('#agDest').value,
+      titulo: $('#agTit').value.trim() || null, estado: $('#agEst').value,
+      unidades: Math.round(numAR($('#agUnid').value)) || null,
+      bultos: Math.round(numAR($('#agBultos').value)) || null,
+      remito: $('#agRem').value.trim() || null, detalle: $('#agDet').value.trim() || null,
+      autor: ST.autor || 'equipo',
+    };
+    if (a) row.id = a.id;
+    if (!row.fecha) return toast('Falta la fecha', 'err');
+    await DB.guardarAgenda(row);
+    cerrarModal(); toast(a ? 'Envío actualizado' : 'Envío agendado', 'ok');
+    await recargar();
+  };
+  if (a && $('#agDel')) $('#agDel').onclick = async () => {
+    await DB.borrarAgenda(a.id); cerrarModal(); toast('Borrado'); await recargar();
+  };
+}
+
+function pintarHistorial() {
+  if (!$('#tHist')) return;
+  const porFecha = new Map();
+  for (const h of ST.hist) {
+    const f = String(h.fecha).slice(0, 10);
+    if (!porFecha.has(f)) porFecha.set(f, { fecha: f, destino: h.destino, u: 0, skus: 0 });
+    const x = porFecha.get(f); x.u += h.unidades || 0; x.skus++;
+  }
+  const filas = Array.from(porFecha.values()).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const totU = filas.reduce((a, x) => a + x.u, 0);
+  $('#histResumen').textContent = filas.length
+    ? `${filas.length} envíos · ${num(totU)} unidades · ${num(new Set(ST.hist.map(h => h.sku)).size)} SKU`
+    : 'sin historial cargado';
+  $('#tHist thead').innerHTML = '<tr><th>Fecha</th><th>Destino</th><th class="num">SKU</th><th class="num">Unidades</th><th></th></tr>';
+  $('#tHist tbody').innerHTML = filas.slice(0, 300).map(x => `<tr>
+    <td>${new Date(x.fecha + 'T12:00:00').toLocaleDateString('es-AR')}</td>
+    <td>${DEPS[x.destino]?.nom || x.destino}</td>
+    <td class="num">${num(x.skus)}</td><td class="num"><b>${num(x.u)}</b></td>
+    <td><button class="btn sm gh" data-hf="${x.fecha}">ver</button></td></tr>`).join('')
+    || '<tr><td colspan="5" class="muted" style="padding:20px;text-align:center">Importá el Excel histórico para tener el respaldo acá.</td></tr>';
+  $('#tHist tbody').onclick = e => { if (e.target.dataset.hf) detalleHist(e.target.dataset.hf); };
+}
+
+function detalleHist(fecha) {
+  const filas = ST.hist.filter(h => String(h.fecha).slice(0, 10) === fecha).sort((a, b) => b.unidades - a.unidades);
+  abrirModal(`<h3>Envío del ${new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR')}</h3>
+    <p class="muted">${filas.length} SKU · ${num(filas.reduce((a, x) => a + x.unidades, 0))} unidades</p>
+    <div class="tblwrap" style="max-height:60vh"><table><thead><tr><th>SKU</th><th>Producto</th><th>MLA</th><th class="num">Unidades</th></tr></thead>
+    <tbody>${filas.map(h => `<tr><td class="mono">${esc(h.sku)}</td><td>${esc((h.producto || '').slice(0, 50))}</td>
+      <td class="mono muted2">${esc(h.mla || '')}</td><td class="num">${num(h.unidades)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="bar" style="margin-top:12px"><div class="grow"></div><button class="btn pri" onclick="cerrarModal()">Cerrar</button></div>`);
+}
+
+/* Excel historico: matriz con SKU en filas y fechas en columnas */
+function leerHistorico(wb) {
+  let mejor = null;
+  for (const nombre of wb.SheetNames) {
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, defval: '', raw: true });
+    if (filas.length < 2) continue;
+    let hi = 0, m = -1;
+    for (let i = 0; i < Math.min(8, filas.length); i++) {
+      const n = filas[i].filter(c => String(c).trim()).length;
+      if (n > m) { m = n; hi = i; }
+    }
+    const head = filas[hi];
+    const heads = head.map(h => String(h).toLowerCase().trim());
+    const b = (...k) => heads.findIndex(h => k.some(x => h.includes(x)));
+    const cSku = b('sku interno', 'sku');
+    const cMla = b('codigo ml', 'código ml', 'mla', 'publicacion');
+    const cProd = b('producto', 'titulo', 'título', 'descripcion');
+    if (cSku < 0) continue;
+    // columnas de fecha: numeros de serie de Excel o fechas parseables
+    const cols = [];
+    for (let c = 0; c < head.length; c++) {
+      const v = head[c];
+      let f = null;
+      if (typeof v === 'number' && v > 30000 && v < 60000) f = new Date(Date.UTC(1899, 11, 30) + v * 864e5);
+      else if (v instanceof Date) f = v;
+      else if (typeof v === 'string' && /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(v.trim())) {
+        const p = v.trim().split(/[\/\-]/).map(Number);
+        f = new Date(Date.UTC(p[2] < 100 ? 2000 + p[2] : p[2], p[1] - 1, p[0]));
+      }
+      if (f && !isNaN(f)) cols.push({ c, fecha: f.toISOString().slice(0, 10) });
+    }
+    if (!cols.length) continue;
+    const out = [];
+    for (let i = hi + 1; i < filas.length; i++) {
+      const mlaRaw = cMla >= 0 ? String(filas[i][cMla] ?? '').trim() : '';
+      // si la fila no trae SKU interno usamos el codigo de ML para no perder el envio
+      const sku = String(filas[i][cSku] ?? '').trim() || mlaRaw;
+      if (!sku) continue;
+      const mla = mlaRaw;
+      const prod = cProd >= 0 ? String(filas[i][cProd] ?? '').trim() : '';
+      for (const col of cols) {
+        const u = Math.round(numAR(filas[i][col.c]));
+        if (u > 0) out.push({ fecha: col.fecha, sku, mla: mla || null, producto: prod || null, destino: 'FULL', unidades: u, origen: 'import' });
+      }
+    }
+    if (out.length && (!mejor || out.length > mejor.filas.length)) mejor = { hoja: nombre, filas: out, fechas: cols.length };
+  }
+  return mejor;
+}
+
+async function importarHistorico(file) {
+  if (typeof XLSX === 'undefined') return msgEn('#histMsg', 'No se pudo cargar el lector de Excel.', 'err');
+  msgEn('#histMsg', 'Leyendo ' + esc(file.name) + '…', 'info');
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+    const r = leerHistorico(wb);
+    if (!r) return msgEn('#histMsg', 'No encontré una columna de SKU con fechas en los títulos.', 'err');
+    // agrupamos por (fecha, sku) por si el archivo repite SKU
+    const idx = new Map();
+    for (const f of r.filas) {
+      const k = f.fecha + '|' + f.sku;
+      if (idx.has(k)) idx.get(k).unidades += f.unidades; else idx.set(k, { ...f });
+    }
+    const filas = Array.from(idx.values());
+    const fechas = new Set(filas.map(f => f.fecha));
+    msgEn('#histMsg', `Guardando ${num(filas.length)} líneas…`, 'info');
+    await DB.guardarHistorial(filas);
+    // una entrada de calendario por fecha, marcada como recibida
+    const yaAg = new Set(ST.agenda.map(a => String(a.fecha).slice(0, 10) + '|' + a.destino));
+    for (const f of Array.from(fechas).sort()) {
+      if (yaAg.has(f + '|FULL')) continue;
+      const del = filas.filter(x => x.fecha === f);
+      await DB.guardarAgenda({
+        fecha: f, destino: 'FULL', titulo: 'Envío a Full', estado: 'recibido',
+        unidades: del.reduce((a, x) => a + x.unidades, 0), detalle: `${del.length} SKU · importado del histórico`,
+        autor: 'histórico',
+      });
+    }
+    msgEn('#histMsg', `Listo: ${num(filas.length)} líneas de ${num(fechas.size)} envíos (hoja "${esc(r.hoja)}"). No toca el stock, queda como historial.`, 'ok');
+    await recargar();
+  } catch (e) { msgEn('#histMsg', 'Error: ' + esc(e.message), 'err'); }
+}
+
+/* ==========================================================
+   v2 · CONFIGURACION
+   ========================================================== */
+function pintarConfig() {
+  if (!$('#cfgMinFull')) return;
+  const u = ST.cfgApp.umbrales || {}, a = ST.cfgApp.alertas || {};
+  $('#cfgMinFull').value = u.FULL ?? 10;
+  $('#cfgMinPack').value = u.PACK ?? 10;
+  $('#cfgMinPropio').value = u.PROPIO ?? 0;
+  $('#cfgEnCamino').checked = a.incluir_en_camino !== false;
+  $('#cfgSoloVentas').checked = !!a.solo_con_ventas;
+  $('#cfgAlertasOn').checked = a.activas !== false;
+  $('#cfgHora').value = a.hora ?? 9;
+  pintarMails();
+  pintarAuroraCfg();
+  $('#dotConn2').className = $('#dotConn').className;
+  $('#txtConn2').textContent = $('#txtConn').textContent;
+  $('#cfgProyecto').textContent = ST.modo === 'sb' ? ST.cfg.url.replace('https://', '') : 'los datos viven solo en esta computadora';
+}
+
+function pintarMails() {
+  const mails = ST.cfgApp.mails || [];
+  $('#cfgMails').innerHTML = !mails.length
+    ? '<p class="muted">Todavía no cargaste ningún mail.</p>'
+    : mails.map((m, i) => `<div class="bar" style="margin-bottom:5px">
+        <label class="pill" style="cursor:pointer;flex:1">
+          <input type="checkbox" data-mi="${i}" ${m.activo !== false ? 'checked' : ''}>
+          <span style="margin-left:6px">${esc(m.email)}</span>
+        </label>
+        <button class="btn sm gh" data-mdel="${i}">✕</button></div>`).join('');
+  $('#cfgMails').onclick = e => {
+    if (e.target.dataset.mdel !== undefined) {
+      ST.cfgApp.mails.splice(+e.target.dataset.mdel, 1); pintarMails();
+    }
+  };
+  $('#cfgMails').onchange = e => {
+    if (e.target.dataset.mi !== undefined) ST.cfgApp.mails[+e.target.dataset.mi].activo = e.target.checked;
+  };
+}
+
+async function guardarConfigApp() {
+  const cfg = {
+    umbrales: {
+      FULL: Math.max(0, Math.round(numAR($('#cfgMinFull').value))),
+      PACK: Math.max(0, Math.round(numAR($('#cfgMinPack').value))),
+      PROPIO: Math.max(0, Math.round(numAR($('#cfgMinPropio').value))),
+    },
+    alertas: {
+      activas: $('#cfgAlertasOn').checked,
+      hora: Math.min(23, Math.max(0, Math.round(numAR($('#cfgHora').value)))),
+      solo_con_ventas: $('#cfgSoloVentas').checked,
+      incluir_en_camino: $('#cfgEnCamino').checked,
+    },
+    mails: ST.cfgApp.mails || [],
+    aurora: { ...cfgAurora(), url: ($('#cfgAuroraUrl')?.value || '').trim().replace(/\/+$/, '') || cfgAurora().url },
+  };
+  try {
+    await DB.guardarConfig(cfg);
+    ST.cfgApp = cfg;
+    msgEn('#cfgMsg', 'Configuración guardada. Las alarmas ya usan estos valores.', 'ok');
+    pintarPanorama(); pintarAlertas();
+  } catch (e) { msgEn('#cfgMsg', 'No se pudo guardar: ' + esc(e.message), 'err'); }
+}
+
+function irA(pagina) {
+  const b = document.querySelector(`nav button[data-p="${pagina}"]`);
+  if (b) b.click();
+}
+
+/* ==========================================================
+   v2 · EVENTOS
+   ========================================================== */
+function eventosV2() {
+  ['#alDep', '#alSoloVenta'].forEach(s => $(s)?.addEventListener('input', pintarAlertas));
+  $('#btnAlMail')?.addEventListener('click', modalMail);
+  $('#btnAlCsv')?.addEventListener('click', () => bajarCsv('alertas-stock-minimo.csv',
+    ['SKU', 'Producto', 'Deposito', 'Hay', 'Minimo', 'Faltan', 'Vta 30d', 'Dias', 'En deposito propio'],
+    alertasFiltradas().map(x => [x.sku, x.producto, DEPS[x.deposito].nom, x.unidades, x.umbral, x.faltan, x.u30,
+      x.dias === null ? '' : Math.round(x.dias), x.propio])));
+
+  $('#calPrev')?.addEventListener('click', () => { ST.calRef = new Date(ST.calRef.getFullYear(), ST.calRef.getMonth() - 1, 1); pintarCalendario(); });
+  $('#calNext')?.addEventListener('click', () => { ST.calRef = new Date(ST.calRef.getFullYear(), ST.calRef.getMonth() + 1, 1); pintarCalendario(); });
+  $('#calHoy')?.addEventListener('click', () => { ST.calRef = new Date(); pintarCalendario(); });
+  $('#btnAgNuevo')?.addEventListener('click', () => editorAgenda(null, iso(new Date())));
+
+  $('#btnHistImp')?.addEventListener('click', () => $('#histFile').click());
+  $('#histFile')?.addEventListener('change', e => { if (e.target.files[0]) importarHistorico(e.target.files[0]); });
+  $('#btnHistCsv')?.addEventListener('click', () => bajarCsv('historial-envios.csv',
+    ['Fecha', 'SKU', 'MLA', 'Producto', 'Destino', 'Unidades'],
+    ST.hist.map(h => [h.fecha, h.sku, h.mla, h.producto, h.destino, h.unidades])));
+
+  $('#btnMailAdd')?.addEventListener('click', () => {
+    const v = $('#cfgMailNuevo').value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return toast('Ese mail no parece válido', 'err');
+    ST.cfgApp.mails = ST.cfgApp.mails || [];
+    if (ST.cfgApp.mails.some(m => m.email.toLowerCase() === v.toLowerCase())) return toast('Ya estaba en la lista', 'err');
+    ST.cfgApp.mails.push({ email: v, activo: true });
+    $('#cfgMailNuevo').value = '';
+    pintarMails();
+  });
+  $('#cfgMailNuevo')?.addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnMailAdd').click(); });
+  $('#btnCfgGuardar')?.addEventListener('click', guardarConfigApp);
+  $('#btnAuroraCopiar')?.addEventListener('click', copiarAurora);
+  $('#btnAuroraComo')?.addEventListener('click', modalAuroraComo);
+  $('#btnAuroraTraer')?.addEventListener('click', traerDeAurora);
+  $('#cfgAuroraUrl')?.addEventListener('input', e => { ST.cfgApp.aurora = { ...cfgAurora(), url: e.target.value.trim() }; });
+  $('#btnCfgConn')?.addEventListener('click', modalConfig);
+}
+
+/* ==========================================================
+   v3 · AURORA WMS  (stock del deposito, en vivo)
+   Aurora exige login, asi que el sincronizador corre en la
+   pestana del usuario aprovechando su sesion: pagina la API
+   tRPC de articulos y hace upsert en stock_aurora.
+   ========================================================== */
+const AURORA_ESTADOS = ['AVAILABLE', 'CHECKED', 'RESERVED', 'NOT_AVAILABLE', 'DISPATCHED'];
+
+function cfgAurora() {
+  const a = ST.cfgApp.aurora || {};
+  return {
+    url: (a.url || 'https://gangahome-cardales.aurorasuite.tech').replace(/\/+$/, ''),
+    estados: a.estados && a.estados.length ? a.estados : ['AVAILABLE'],
+    ultimo: a.ultimo || null,
+  };
+}
+
+/* El sincronizador que se pega en la consola de Aurora */
+function snippetAurora() {
+  const a = cfgAurora();
+  const sb = ST.cfg.url, key = ST.cfg.key;
+  return `/* Stock Ops · trae el stock de Aurora y lo deja en la app. Pegar en la consola de ${a.url} */
+(async () => {
+  const ESTADOS = ${JSON.stringify(a.estados)};
+  const SB = ${JSON.stringify(sb)}, KEY = ${JSON.stringify(key)};
+  const q = o => encodeURIComponent(JSON.stringify({ "0": { json: o, meta: { values: { search: ["undefined"], bannerId: ["undefined"], useSafetyStock: ["undefined"], productState: ["undefined"] }, v: 1 } } }));
+  const pedir = async (i) => {
+    const r = await fetch(\`/api/trpc/articles.all?batch=1&input=\${q({ pageIndex: i, pageSize: 200, search: null, bannerId: null, articleCategoryIds: [], useSafetyStock: null, productState: null, sort: [] })}\`, { credentials: 'include' });
+    if (!r.ok) throw new Error('Aurora respondio ' + r.status);
+    return (await r.json())[0].result.data.json;
+  };
+  console.log('Stock Ops: leyendo Aurora...');
+  const p0 = await pedir(0);
+  let arts = p0.content.slice();
+  for (let i = 1; i < p0.totalPages; i++) { arts = arts.concat((await pedir(i)).content); console.log('  pagina ' + (i + 1) + '/' + p0.totalPages); }
+  const filas = arts.filter(a => a.sku).map(a => {
+    const det = {}; (a.stock || []).forEach(s => det[s.state] = (det[s.state] || 0) + (s.quantity || 0));
+    return { sku: String(a.sku).trim(), producto: a.name || null,
+             unidades: ESTADOS.reduce((t, e) => t + (det[e] || 0), 0), detalle: det, actualizado: new Date().toISOString() };
+  });
+  for (let i = 0; i < filas.length; i += 500) {
+    const r = await fetch(SB + '/rest/v1/stock_aurora?on_conflict=sku', {
+      method: 'POST',
+      headers: { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(filas.slice(i, i + 500)),
+    });
+    if (!r.ok) throw new Error('Al guardar: ' + r.status + ' ' + (await r.text()).slice(0, 120));
+  }
+  await fetch(SB + '/rest/v1/stock_config?clave=eq.aurora', {
+    method: 'PATCH', headers: { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify({ valor: { url: location.origin, estados: ESTADOS, ultimo: new Date().toISOString() }, actualizado: new Date().toISOString() }),
+  });
+  const conStock = filas.filter(f => f.unidades > 0).length;
+  console.log('Stock Ops: listo. ' + filas.length + ' articulos, ' + conStock + ' con stock, ' + filas.reduce((t, f) => t + f.unidades, 0) + ' unidades.');
+  alert('Stock Ops: ' + filas.length + ' articulos leidos de Aurora (' + conStock + ' con stock). Ya podes aplicarlo desde Pegar bases de ML.');
+})();`;
+}
+
+function modalAuroraComo() {
+  const a = cfgAurora();
+  abrirModal(`<h3>Cómo traer el stock de Aurora</h3>
+    <ol class="muted" style="line-height:1.7">
+      <li>Abrí <a href="${esc(a.url)}" target="_blank" rel="noopener">Aurora</a> e iniciá sesión como siempre.</li>
+      <li>Apretá <b>F12</b> y andá a la pestaña <b>Console</b>.</li>
+      <li>Pegá el sincronizador (el botón <b>Copiar el sincronizador</b>) y dale Enter.</li>
+      <li>Tarda unos 20 segundos. Cuando termina avisa cuántos artículos leyó.</li>
+      <li>Volvé acá, entrá en <b>Pegar bases de ML</b> y apretá <b>Traer de Aurora</b>: te muestra las diferencias contra el depósito propio y las aplicás.</li>
+    </ol>
+    <p class="muted2">Corre con tu sesión de Aurora abierta, así que no hay que guardar usuario ni contraseña en ningún lado.
+    Si más adelante conseguís un usuario de servicio o una API key de Aurora, esto mismo lo puede hacer solo un Worker cada hora.</p>
+    <textarea rows="10" id="auroraTxt" readonly>${esc(snippetAurora())}</textarea>
+    <div class="bar" style="margin-top:10px">
+      <button class="btn" id="btnAuroraCopiar2">Copiar</button>
+      <div class="grow"></div><button class="btn pri" onclick="cerrarModal()">Cerrar</button></div>`);
+  $('#btnAuroraCopiar2').onclick = copiarAurora;
+}
+
+async function copiarAurora() {
+  const txt = snippetAurora();
+  try { await navigator.clipboard.writeText(txt); toast('Sincronizador copiado: pegalo en la consola de Aurora', 'ok'); }
+  catch (e) { modalAuroraComo(); }
+}
+
+function pintarAuroraCfg() {
+  if (!$('#cfgAuroraUrl')) return;
+  const a = cfgAurora();
+  $('#cfgAuroraUrl').value = a.url;
+  $('#cfgAuroraEstados').innerHTML = AURORA_ESTADOS.map(e =>
+    `<span class="chip${a.estados.includes(e) ? ' on' : ''}" data-est="${e}">${e === 'AVAILABLE' ? 'disponible' : e === 'CHECKED' ? 'controlado' : e === 'RESERVED' ? 'reservado' : e === 'NOT_AVAILABLE' ? 'no disponible' : 'despachado'}</span>`).join('');
+  $('#cfgAuroraEstados').onclick = e => {
+    const est = e.target.dataset.est; if (!est) return;
+    const cur = new Set(cfgAurora().estados);
+    cur.has(est) ? cur.delete(est) : cur.add(est);
+    if (!cur.size) cur.add('AVAILABLE');
+    ST.cfgApp.aurora = { ...cfgAurora(), estados: Array.from(cur) };
+    pintarAuroraCfg();
+  };
+  const n = ST.aurora ? ST.aurora.length : 0;
+  $('#cfgAuroraEstado').textContent = a.ultimo
+    ? `última lectura ${fechaCorta(a.ultimo)} · ${num(n)} artículos`
+    : 'todavía no se leyó ningún stock de Aurora';
+  const btn = $('#btnAuroraTraer');
+  if (btn) btn.style.display = n ? '' : 'none';
+}
+
+/* Compara lo que trajo Aurora contra el deposito propio */
+function traerDeAurora() {
+  if (!ST.aurora || !ST.aurora.length) return msgEn('#recMsg', 'Todavía no hay datos de Aurora. Corré el sincronizador desde Configuración.', 'err');
+  const a = cfgAurora();
+  $('#recDep').value = 'PROPIO';
+  pintarAyudaBase();
+  compararStock(ST.aurora.map(x => ({ sku: x.sku, u: x.unidades, nombre: x.producto })), 'PROPIO',
+    `Aurora WMS · lectura del ${fechaCorta(a.ultimo)} · ${num(ST.aurora.length)} artículos · cuenta ${a.estados.join(' + ')}.`);
+}
 </script>
 </body>
 </html>
