@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Ops · Ganga Home</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#0f1117; --panel:#171a23; --panel2:#1e222e; --line:#2a2f3d;
+  --tx:#e8eaf0; --tx2:#9aa3b5; --tx3:#6b7488;
+  --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --info:#3b82f6; --acc:#8b5cf6;
+  --full:#3b82f6; --pack:#f59e0b; --propio:#22c55e; --tr:#8b5cf6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--info)}
+
+header{position:sticky;top:0;z-index:50;background:rgba(15,17,23,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.hdr{display:flex;align-items:center;gap:14px;padding:10px 16px;flex-wrap:wrap}
+.logo{font-weight:700;font-size:16px;letter-spacing:.2px}
+.logo span{color:var(--acc)}
+.grow{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-size:12px;color:var(--tx2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--tx3)}
+.dot.on{background:var(--ok)} .dot.off{background:var(--bad)} .dot.mid{background:var(--warn)}
+.btn{padding:7px 13px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);cursor:pointer;transition:.15s}
+.btn:hover{background:#262b3a;border-color:#3a4056}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{filter:brightness(1.1)}
+.btn.gh{background:transparent}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+nav{display:flex;gap:2px;padding:0 12px;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--panel)}
+nav button{background:none;border:none;padding:11px 15px;cursor:pointer;color:var(--tx2);border-bottom:2px solid transparent;white-space:nowrap}
+nav button:hover{color:var(--tx)}
+nav button.on{color:var(--tx);border-bottom-color:var(--acc)}
+
+main{padding:16px;max-width:1600px;margin:0 auto}
+.page{display:none} .page.on{display:block}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi .lab{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx3)}
+.kpi .val{font-size:24px;font-weight:700;margin-top:3px}
+.kpi .sub{font-size:12px;color:var(--tx2);margin-top:2px}
+.kpi.full .val{color:var(--full)} .kpi.pack .val{color:var(--pack)}
+.kpi.propio .val{color:var(--propio)} .kpi.tr .val{color:var(--tr)}
+.kpi.bad .val{color:var(--bad)} .kpi.warn .val{color:var(--warn)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:14px;font-weight:600}
+.card h3 small{font-weight:400;color:var(--tx3);margin-left:8px}
+
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+input[type=text],input[type=number],input[type=date],select,textarea{
+  background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+input[type=text]{min-width:180px}
+textarea{width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
+label.fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--tx2)}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);cursor:pointer;font-size:12px}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+
+.tblwrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;background:var(--panel2);text-align:left;padding:9px 10px;font-weight:600;font-size:12px;
+   color:var(--tx2);white-space:nowrap;cursor:pointer;border-bottom:1px solid var(--line);z-index:2}
+th:hover{color:var(--tx)}
+th.num,td.num{text-align:right}
+td{padding:8px 10px;border-bottom:1px solid #22262f;white-space:nowrap}
+tr:hover td{background:#1b1f2b}
+tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
+.tag{display:inline-block;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600}
+.tag.ok{background:rgba(34,197,94,.15);color:var(--ok)}
+.tag.warn{background:rgba(245,158,11,.15);color:var(--warn)}
+.tag.bad{background:rgba(239,68,68,.15);color:var(--bad)}
+.tag.info{background:rgba(59,130,246,.15);color:var(--info)}
+.tag.mut{background:rgba(154,163,181,.13);color:var(--tx2)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.muted{color:var(--tx2)} .muted2{color:var(--tx3)}
+.right{text-align:right}
+
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.msg{padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:13px}
+.msg.ok{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3)}
+.msg.err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3)}
+.msg.warn{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3)}
+.msg.info{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3)}
+
+#toast{position:fixed;bottom:18px;right:18px;z-index:200;display:flex;flex-direction:column;gap:8px}
+.tst{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--acc);
+     border-radius:8px;padding:10px 14px;box-shadow:0 8px 28px rgba(0,0,0,.45);max-width:360px;animation:sl .2s}
+.tst.ok{border-left-color:var(--ok)} .tst.err{border-left-color:var(--bad)}
+@keyframes sl{from{transform:translateX(20px);opacity:0}}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;display:none;align-items:center;justify-content:center;padding:20px}
+.modal.on{display:flex}
+.modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;max-width:760px;width:100%;max-height:88vh;overflow:auto}
+
+.bars{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#222736;min-width:90px}
+.bars i{display:block;height:100%}
+.hint{font-size:12px;color:var(--tx3);margin-top:6px}
+.pack-line{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.pack-line input[type=text]{min-width:150px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;color:var(--tx2);cursor:pointer}
+.drop:hover{border-color:var(--acc);color:var(--tx)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr">
+    <div class="logo">Stock <span>Ops</span> · Ganga Home</div>
+    <span class="pill" id="pillConn"><i class="dot" id="dotConn"></i><span id="txtConn">conectando…</span></span>
+    <span class="pill" id="pillSync"><i class="dot"></i><span id="txtSync">sync ML: —</span></span>
+    <div class="grow"></div>
+    <input type="text" id="autor" placeholder="Tu nombre" style="min-width:130px">
+    <button class="btn sm" id="btnCfg">Config</button>
+    <button class="btn sm pri" id="btnRefresh">Actualizar</button>
+  </div>
+  <nav>
+    <button data-p="panorama" class="on">Panorama</button>
+    <button data-p="movimientos">Movimientos</button>
+    <button data-p="carga">Ingresos y ajustes</button>
+    <button data-p="remitos">Envíos y tránsito</button>
+    <button data-p="reconcil">Pegar bases de ML</button>
+    <button data-p="maestro">Maestro SKU</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ================= PANORAMA ================= -->
+<section class="page on" id="p-panorama">
+  <div class="kpis" id="kpis"></div>
+  <div class="card">
+    <div class="bar">
+      <input type="text" id="q" placeholder="Buscar SKU, producto o MLA…">
+      <select id="fCanal">
+        <option value="">Todos los canales</option>
+        <option value="full">Solo Full</option>
+        <option value="pack">Solo Envío Pack</option>
+        <option value="ambos">Ambos canales</option>
+      </select>
+      <select id="fEstado">
+        <option value="">Cualquier estado</option>
+        <option value="quiebre">Quiebre (sin stock y vende)</option>
+        <option value="bajo">Bajo mínimo</option>
+        <option value="sin">Sin stock en ningún lado</option>
+        <option value="con">Con stock</option>
+        <option value="muerto">Sin ventas 30d con stock</option>
+      </select>
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="fMla"> ver por publicación</label>
+      <div class="grow"></div>
+      <span class="muted2" id="cnt"></span>
+      <button class="btn sm" id="btnCsv">CSV</button>
+    </div>
+    <div class="tblwrap"><table id="tPan"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ================= MOVIMIENTOS ================= -->
+<section class="page" id="p-movimientos">
+  <div class="card">
+    <div class="bar">
+      <input type="text" id="mq" placeholder="Buscar SKU o detalle…">
+      <select id="mTipo"><option value="">Todos los tipos</option></select>
+      <select id="mDep">
+        <option value="">Todos los depósitos</option>
+        <option value="FULL">Full</option><option value="PACK">Envío Pack</option>
+        <option value="PROPIO">Depósito propio</option>
+        <option value="TR_FULL">En tránsito a Full</option><option value="TR_PACK">En tránsito a Pack</option>
+      </select>
+      <select id="mOrigen"><option value="">Manual y automático</option><option value="worker">Solo ventas ML</option><option value="app">Solo manual</option><option value="import">Solo reconciliación</option></select>
+      <input type="date" id="mDesde"><input type="date" id="mHasta">
+      <div class="grow"></div>
+      <span class="muted2" id="mCnt"></span>
+      <button class="btn sm" id="btnMovCsv">CSV</button>
+    </div>
+    <div class="tblwrap"><table id="tMov"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ================= CARGA MANUAL ================= -->
+<section class="page" id="p-carga">
+  <div class="grid2">
+    <div class="card">
+      <h3>Movimiento manual <small>una línea</small></h3>
+      <div id="msgCarga"></div>
+      <div class="bar" style="align-items:flex-end">
+        <label class="fld">SKU
+          <input type="text" id="cSku" list="dlSku" placeholder="GH-XXX">
+        </label>
+        <label class="fld">Depósito
+          <select id="cDep">
+            <option value="PROPIO">Depósito propio</option>
+            <option value="PACK">Envío Pack (Flex + Colecta)</option>
+            <option value="FULL">Full</option>
+          </select>
+        </label>
+        <label class="fld">Tipo
+          <select id="cTipo">
+            <option value="ingreso">Ingreso (compra / producción)</option>
+            <option value="ajuste">Ajuste (conteo, rotura, faltante)</option>
+            <option value="salida">Salida (venta externa, uso, baja)</option>
+            <option value="devolucion">Devolución de cliente</option>
+          </select>
+        </label>
+        <label class="fld">Unidades
+          <input type="number" id="cUnid" value="0" style="width:110px">
+        </label>
+        <label class="fld" style="flex:1;min-width:200px">Detalle
+          <input type="text" id="cDet" placeholder="Remito 1234 / conteo del 4-9 / rotura">
+        </label>
+        <button class="btn pri" id="btnCarga">Cargar</button>
+      </div>
+      <div class="hint">En ingreso y devolución las unidades suman. En salida restan. En ajuste podés poner negativo para descontar.</div>
+      <div id="ultimos" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Traslado entre depósitos <small>sin tránsito, impacta al toque</small></h3>
+      <div class="bar" style="align-items:flex-end">
+        <label class="fld">SKU<input type="text" id="tSku" list="dlSku"></label>
+        <label class="fld">Desde<select id="tDe"><option value="PROPIO">Propio</option><option value="PACK">Envío Pack</option><option value="FULL">Full</option></select></label>
+        <label class="fld">Hacia<select id="tA"><option value="PACK">Envío Pack</option><option value="FULL">Full</option><option value="PROPIO">Propio</option></select></label>
+        <label class="fld">Unidades<input type="number" id="tUnid" value="0" style="width:100px"></label>
+        <button class="btn pri" id="btnTras">Trasladar</button>
+      </div>
+      <div class="hint">Para mandar mercadería a Full o a Envío Pack con seguimiento de lo que está en camino, usá <b>Envíos y tránsito</b>.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Carga masiva <small>pegá SKU y unidades, una por línea</small></h3>
+    <div class="bar" style="align-items:flex-end">
+      <label class="fld">Depósito<select id="bDep"><option value="PROPIO">Depósito propio</option><option value="PACK">Envío Pack</option><option value="FULL">Full</option></select></label>
+      <label class="fld">Tipo<select id="bTipo"><option value="ingreso">Ingreso</option><option value="ajuste">Ajuste</option><option value="salida">Salida</option></select></label>
+      <label class="fld" style="flex:1">Detalle<input type="text" id="bDet" placeholder="Compra proveedor X"></label>
+      <button class="btn pri" id="btnBulk">Cargar todo</button>
+    </div>
+    <textarea id="bTxt" rows="8" placeholder="GH-101	24&#10;GH-102	6&#10;GH-103;12"></textarea>
+    <div class="hint">Acepta separador tabulación, coma, punto y coma o varios espacios. Ejemplo pegado desde Excel: dos columnas, SKU y unidades.</div>
+  </div>
+</section>
+
+<!-- ================= REMITOS ================= -->
+<section class="page" id="p-remitos">
+  <div class="card">
+    <h3>Nuevo envío <small>sale del depósito propio y queda en camino hasta que lo confirmes</small></h3>
+    <div class="bar" style="align-items:flex-end">
+      <label class="fld">Destino<select id="rDest"><option value="FULL">Full</option><option value="PACK">Envío Pack</option></select></label>
+      <label class="fld">N° de remito<input type="text" id="rId" placeholder="se genera solo"></label>
+      <label class="fld">Bultos<input type="number" id="rBultos" style="width:90px"></label>
+      <label class="fld" style="flex:1">Detalle<input type="text" id="rDet" placeholder="Envío semanal"></label>
+    </div>
+    <div id="rLineas"></div>
+    <div class="bar">
+      <button class="btn sm" id="btnRLinea">+ Línea</button>
+      <button class="btn sm" id="btnRPegar">Pegar lista</button>
+      <div class="grow"></div>
+      <span class="muted" id="rTot"></span>
+      <button class="btn pri" id="btnRGuardar">Registrar envío</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>En tránsito</h3>
+    <div id="rTransito"></div>
+  </div>
+  <div class="card">
+    <h3>Historial de remitos</h3>
+    <div class="tblwrap" style="max-height:40vh"><table id="tRem"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ================= PEGAR BASES DE ML ================= -->
+<section class="page" id="p-reconcil">
+  <div class="card">
+    <h3>Pegar bases de ML <small>el stock real de cada depósito, tal como lo exportás</small></h3>
+    <p class="muted" style="margin-top:0">
+      Abrí el export, seleccioná todo (incluida la fila de títulos), copiá y pegá acá abajo.
+      La app busca sola la columna de SKU y la de stock, compara contra lo que tiene el sistema
+      y deja el ajuste por la diferencia. No hace falta acomodar nada.
+    </p>
+
+    <div class="bar" style="align-items:flex-end">
+      <label class="fld">Qué base estás pegando
+        <select id="recDep">
+          <option value="FULL">Stock en Full · Reporte de Planificación de ML</option>
+          <option value="PACK">Stock en Envío Pack · export de Envíopack</option>
+          <option value="PROPIO">Stock del depósito propio · export del ERP</option>
+        </select>
+      </label>
+      <label class="fld">Los SKU que no vengan en la base
+        <select id="recFalt">
+          <option value="ignorar">Dejarlos como están</option>
+          <option value="cero">Ponerlos en cero</option>
+        </select>
+      </label>
+      <div class="grow"></div>
+      <input type="file" id="recFile" accept=".xlsx,.xls,.csv" hidden>
+      <button class="btn" id="btnRecFile">…o subir el Excel</button>
+    </div>
+
+    <div id="recAyuda" class="msg info" style="margin-bottom:8px"></div>
+
+    <textarea id="recTxt" rows="10" placeholder="Pegá acá el bloque copiado del Excel, con la fila de títulos.&#10;&#10;SKU	Producto	Unidades aptas	En camino&#10;GH-101	Sábana 2 plazas	1.825	200&#10;GH-202	Acolchado queen	96	0"></textarea>
+    <div class="bar" style="margin-top:10px">
+      <button class="btn pri" id="btnRecTxt">Comparar con el sistema</button>
+      <button class="btn" id="btnRecLimpiar">Limpiar</button>
+      <div class="grow"></div>
+      <span class="muted2" id="recResumenPegado"></span>
+    </div>
+
+    <div class="drop" id="recDrop" style="margin-top:10px;padding:14px">o arrastrá el archivo acá</div>
+
+    <div id="recMsg"></div>
+    <div id="recPrev"></div>
+  </div>
+</section>
+
+<!-- ================= MAESTRO ================= -->
+<section class="page" id="p-maestro">
+  <div class="card">
+    <div class="bar">
+      <input type="text" id="maq" placeholder="Buscar…">
+      <div class="grow"></div>
+      <input type="file" id="maFile" accept=".xlsx,.xls,.csv" hidden>
+      <button class="btn sm" id="btnMaImp">Importar Excel</button>
+      <button class="btn sm" id="btnMaNuevo">+ SKU</button>
+      <button class="btn sm" id="btnMaCsv">CSV</button>
+    </div>
+    <div id="maMsg"></div>
+    <div class="hint" style="margin-bottom:8px">
+      El Excel puede tener las columnas: SKU, Producto, Variante, Categoría, MLA (o Publicaciones, separadas por coma),
+      Canal Full (Si/No), Canal Pack (Si/No), Mínimo Full, Mínimo Pack, Cobertura días. Solo SKU es obligatoria.
+    </div>
+    <div class="tblwrap"><table id="tMa"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+</main>
+
+<datalist id="dlSku"></datalist>
+<div id="toast"></div>
+
+<div class="modal" id="modal"><div class="box" id="modalBox"></div></div>
+<script>
+/* ==========================================================
+   STOCK OPS · Ganga Home
+   App de control de stock multi-deposito para la cuenta de ML.
+   Depositos: FULL (Mercado Libre Full) · PACK (Envio Pack: Colecta
+   y Flex comparten stock) · PROPIO · TR_FULL / TR_PACK (en camino)
+   ========================================================== */
+
+const DEPS = {
+  FULL:   { nom: 'Full',            corto: 'Full',     color: 'var(--full)' },
+  PACK:   { nom: 'Envío Pack',      corto: 'Pack',     color: 'var(--pack)' },
+  PROPIO: { nom: 'Depósito propio', corto: 'Propio',   color: 'var(--propio)' },
+  TR_FULL:{ nom: 'En camino a Full',corto: '→Full',    color: 'var(--tr)' },
+  TR_PACK:{ nom: 'En camino a Pack',corto: '→Pack',    color: 'var(--tr)' },
+};
+const TIPOS = ['venta','cancelacion','devolucion','ingreso','ajuste','salida','envio','recepcion','traslado'];
+
+const ST = {
+  cfg: { url: '', key: '' },
+  modo: 'local',          // 'sb' | 'local'
+  autor: '',
+  pan: [],                // panorama por SKU
+  maestro: [],
+  movs: [],
+  remitos: [],
+  sync: null,
+  orden: { col: 'u30', dir: -1 },
+  ordenMa: { col: 'sku', dir: 1 },
+  lineasRemito: [],
+  recPend: null,
+};
+
+/* ------------------- utilidades ------------------- */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const num = n => (Number(n) || 0).toLocaleString('es-AR');
+const dec = (n, d = 1) => (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const soloDig = s => String(s ?? '').replace(/\D/g, '');
+const hoy = () => new Date().toISOString();
+const fechaCorta = s => { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); };
+const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+
+function toast(msg, tipo = '') {
+  const d = document.createElement('div');
+  d.className = 'tst ' + tipo;
+  d.textContent = msg;
+  $('#toast').appendChild(d);
+  setTimeout(() => { d.style.opacity = '0'; d.style.transition = '.3s'; setTimeout(() => d.remove(), 300); }, 3800);
+}
+function msgEn(sel, texto, tipo = 'info') {
+  const el = $(sel); if (!el) return;
+  el.innerHTML = texto ? `<div class="msg ${tipo}">${texto}</div>` : '';
+}
+
+/* Numeros en formato argentino: "1.825" = 1825, "1,5" = 1.5 */
+function numAR(v) {
+  if (typeof v === 'number') return v;
+  if (v == null) return 0;
+  let s = String(v).trim().replace(/\s/g, '');
+  if (!s) return 0;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+/* ==========================================================
+   CONEXION
+   ========================================================== */
+async function detectarConfig() {
+  const guardada = lsGet('stockops_cfg');
+  if (guardada) { try { const c = JSON.parse(guardada); if (c.url && c.key) return c; } catch (e) {} }
+  // misma tecnica que el resto de las apps del repo: leer la config de un HTML hermano
+  const hermanos = ['catalogo-salud.html', 'flex-ops.html', 'ganga-control.html', 'clevel-dashboard-ml.html', 'plan-full.html'];
+  for (const h of hermanos) {
+    try {
+      const r = await fetch(h, { cache: 'no-store' });
+      if (!r.ok) continue;
+      const t = await r.text();
+      const url = (t.match(/https:\/\/[a-z0-9]{15,25}\.supabase\.co/) || [])[0];
+      const key = (t.match(/eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/) || [])[0];
+      if (url && key) return { url, key };
+    } catch (e) {}
+  }
+  return null;
+}
+
+function sbHeaders(extra = {}) {
+  return { apikey: ST.cfg.key, Authorization: 'Bearer ' + ST.cfg.key, 'Content-Type': 'application/json', ...extra };
+}
+async function sbGet(path) {
+  const r = await fetch(`${ST.cfg.url}/rest/v1/${path}`, { headers: sbHeaders() });
+  if (!r.ok) throw new Error(`GET ${path.split('?')[0]} → ${r.status}`);
+  return r.json();
+}
+async function sbPost(tabla, filas, prefer = 'return=minimal') {
+  const r = await fetch(`${ST.cfg.url}/rest/v1/${tabla}`, { method: 'POST', headers: sbHeaders({ Prefer: prefer }), body: JSON.stringify(filas) });
+  if (!r.ok) throw new Error(`POST ${tabla} → ${r.status} ${(await r.text()).slice(0, 160)}`);
+  return prefer.includes('representation') ? r.json() : null;
+}
+async function sbPatch(path, obj) {
+  const r = await fetch(`${ST.cfg.url}/rest/v1/${path}`, { method: 'PATCH', headers: sbHeaders({ Prefer: 'return=minimal' }), body: JSON.stringify(obj) });
+  if (!r.ok) throw new Error(`PATCH ${path.split('?')[0]} → ${r.status}`);
+}
+async function sbDelete(path) {
+  const r = await fetch(`${ST.cfg.url}/rest/v1/${path}`, { method: 'DELETE', headers: sbHeaders() });
+  if (!r.ok) throw new Error(`DELETE → ${r.status}`);
+}
+
+/* ---------- backend local (sin Supabase) ---------- */
+const LOCAL = {
+  get(k, def) { try { return JSON.parse(lsGet('stockops_' + k) || 'null') ?? def; } catch (e) { return def; } },
+  set(k, v) { lsSet('stockops_' + k, JSON.stringify(v)); },
+};
+
+/* ==========================================================
+   CAPA DE DATOS
+   ========================================================== */
+const DB = {
+  async maestro() {
+    if (ST.modo === 'sb') return await sbGet('stock_maestro?select=*&order=sku&limit=20000');
+    return LOCAL.get('maestro', []);
+  },
+  async guardarMaestro(filas) {
+    if (!filas.length) return;
+    if (ST.modo === 'sb') {
+      for (let i = 0; i < filas.length; i += 300) {
+        const lote = filas.slice(i, i + 300).map(f => ({ ...f, actualizado: hoy() }));
+        const r = await fetch(`${ST.cfg.url}/rest/v1/stock_maestro?on_conflict=sku`, {
+          method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(lote),
+        });
+        if (!r.ok) throw new Error(`maestro → ${r.status} ${(await r.text()).slice(0, 160)}`);
+      }
+    } else {
+      const m = LOCAL.get('maestro', []);
+      for (const f of filas) {
+        const i = m.findIndex(x => x.sku === f.sku);
+        if (i >= 0) m[i] = { ...m[i], ...f, actualizado: hoy() }; else m.push({ ...f, actualizado: hoy() });
+      }
+      LOCAL.set('maestro', m);
+    }
+  },
+  async borrarMaestro(sku) {
+    if (ST.modo === 'sb') await sbDelete(`stock_maestro?sku=eq.${encodeURIComponent(sku)}`);
+    else LOCAL.set('maestro', LOCAL.get('maestro', []).filter(x => x.sku !== sku));
+  },
+
+  /* Panorama: en Supabase lo agrega la vista; en local se calcula acá */
+  async panorama() {
+    if (ST.modo === 'sb') {
+      try { return await sbGet('v_stock_panorama?select=*&limit=20000'); }
+      catch (e) { /* la vista puede no existir todavía */ }
+      const [ma, sal] = await Promise.all([this.maestro(), sbGet('v_stock_saldos?select=*&limit=20000').catch(() => [])]);
+      return unir(ma, sal, []);
+    }
+    return calcPanoramaLocal();
+  },
+
+  async movimientos({ limite = 1500 } = {}) {
+    if (ST.modo === 'sb') return await sbGet(`stock_movimientos?select=*&order=id.desc&limit=${limite}`);
+    return LOCAL.get('movs', []).slice().sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, limite);
+  },
+  async movsDeRemito(remito) {
+    if (ST.modo === 'sb') return await sbGet(`stock_movimientos?select=*&remito=eq.${encodeURIComponent(remito)}`);
+    return LOCAL.get('movs', []).filter(m => m.remito === remito);
+  },
+  async agregarMovs(filas) {
+    if (!filas.length) return 0;
+    const base = filas.map(f => ({ fecha: f.fecha || hoy(), origen: 'app', autor: ST.autor || 'equipo', ...f }));
+    if (ST.modo === 'sb') {
+      for (let i = 0; i < base.length; i += 400) await sbPost('stock_movimientos', base.slice(i, i + 400));
+    } else {
+      const m = LOCAL.get('movs', []);
+      let id = LOCAL.get('seq', 1);
+      base.forEach(f => { m.push({ ...f, id: id++ }); });
+      LOCAL.set('seq', id); LOCAL.set('movs', m);
+    }
+    return base.length;
+  },
+
+  async remitos() {
+    if (ST.modo === 'sb') return await sbGet('stock_remitos?select=*&order=fecha_envio.desc&limit=500');
+    return LOCAL.get('remitos', []).slice().sort((a, b) => String(b.fecha_envio).localeCompare(String(a.fecha_envio)));
+  },
+  async guardarRemito(r) {
+    if (ST.modo === 'sb') {
+      const res = await fetch(`${ST.cfg.url}/rest/v1/stock_remitos?on_conflict=id`, {
+        method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify([r]),
+      });
+      if (!res.ok) throw new Error(`remito → ${res.status}`);
+    } else {
+      const l = LOCAL.get('remitos', []);
+      const i = l.findIndex(x => x.id === r.id);
+      if (i >= 0) l[i] = { ...l[i], ...r }; else l.push(r);
+      LOCAL.set('remitos', l);
+    }
+  },
+  async estadoSync() {
+    if (ST.modo !== 'sb') return null;
+    try { const r = await sbGet('stock_sync_estado?id=eq.ml&select=*'); return r[0] || null; } catch (e) { return null; }
+  },
+};
+
+function calcPanoramaLocal() {
+  const ma = LOCAL.get('maestro', []);
+  const movs = LOCAL.get('movs', []);
+  const idx = new Map();
+  const t30 = Date.now() - 30 * 864e5, t7 = Date.now() - 7 * 864e5;
+  const tocar = sku => {
+    if (!idx.has(sku)) idx.set(sku, { sku, full_u: 0, pack_u: 0, propio_u: 0, tr_full_u: 0, tr_pack_u: 0, u7: 0, u30: 0, u30_full: 0, u30_pack: 0, ultimo_mov: null });
+    return idx.get(sku);
+  };
+  for (const m of movs) {
+    const r = tocar(m.sku);
+    const k = { FULL: 'full_u', PACK: 'pack_u', PROPIO: 'propio_u', TR_FULL: 'tr_full_u', TR_PACK: 'tr_pack_u' }[m.deposito];
+    if (k) r[k] += Number(m.unidades) || 0;
+    if (!r.ultimo_mov || String(m.fecha) > String(r.ultimo_mov)) r.ultimo_mov = m.fecha;
+    if (m.tipo === 'venta') {
+      const t = new Date(m.fecha).getTime(), u = -(Number(m.unidades) || 0);
+      if (t >= t30) { r.u30 += u; if (m.deposito === 'FULL') r.u30_full += u; if (m.deposito === 'PACK') r.u30_pack += u; }
+      if (t >= t7) r.u7 += u;
+    }
+  }
+  ma.forEach(m => tocar(m.sku));
+  return unir(ma, Array.from(idx.values()), []);
+}
+
+function unir(maestro, saldos) {
+  const mm = new Map(maestro.map(m => [m.sku, m]));
+  const out = [];
+  const vistos = new Set();
+  for (const s of saldos) {
+    const m = mm.get(s.sku) || {};
+    vistos.add(s.sku);
+    out.push(fila(s.sku, m, s));
+  }
+  for (const m of maestro) if (!vistos.has(m.sku)) out.push(fila(m.sku, m, {}));
+  return out;
+}
+function fila(sku, m, s) {
+  return {
+    sku, producto: m.producto || '', variante: m.variante || '', categoria: m.categoria || '',
+    mlas: m.mlas || [], canal_full: m.canal_full !== false, canal_pack: m.canal_pack !== false,
+    activo: m.activo !== false, min_full: m.min_full || 0, min_pack: m.min_pack || 0,
+    cobertura_dias: m.cobertura_dias || 21,
+    full_u: s.full_u || 0, pack_u: s.pack_u || 0, propio_u: s.propio_u || 0,
+    tr_full_u: s.tr_full_u || 0, tr_pack_u: s.tr_pack_u || 0,
+    total_u: (s.full_u || 0) + (s.pack_u || 0) + (s.propio_u || 0) + (s.tr_full_u || 0) + (s.tr_pack_u || 0),
+    u7: s.u7 || 0, u30: s.u30 || 0, u30_full: s.u30_full || 0, u30_pack: s.u30_pack || 0,
+    ultimo_mov: s.ultimo_mov || null,
+  };
+}
+
+/* Derivados por fila: cobertura y estado */
+function derivar(r) {
+  const vdF = (r.u30_full || 0) / 30, vdP = (r.u30_pack || 0) / 30, vd = (r.u30 || 0) / 30;
+  const covF = vdF > 0 ? (r.full_u + r.tr_full_u) / vdF : null;
+  const covP = vdP > 0 ? (r.pack_u + r.tr_pack_u) / vdP : null;
+  const cov  = vd  > 0 ? r.total_u / vd : null;
+  let estado = 'ok', txt = 'OK';
+  const vende = (r.u30 || 0) > 0;
+  if (r.total_u <= 0) { estado = vende ? 'quiebre' : 'sin'; txt = vende ? 'QUIEBRE' : 'Sin stock'; }
+  else if ((r.canal_full && r.full_u + r.tr_full_u <= 0 && r.u30_full > 0) ||
+           (r.canal_pack && r.pack_u + r.tr_pack_u <= 0 && r.u30_pack > 0)) { estado = 'quiebre_canal'; txt = 'Quiebre de canal'; }
+  else if ((r.min_full && r.full_u < r.min_full) || (r.min_pack && r.pack_u < r.min_pack)) { estado = 'bajo'; txt = 'Bajo mínimo'; }
+  else if (covF !== null && covF < 7) { estado = 'bajo'; txt = 'Full < 7 días'; }
+  else if (covP !== null && covP < 7) { estado = 'bajo'; txt = 'Pack < 7 días'; }
+  else if (!vende && r.total_u > 0) { estado = 'muerto'; txt = 'Sin ventas 30d'; }
+  return { ...r, vd, vdF, vdP, covF, covP, cov, estado, estadoTxt: txt };
+}
+
+/* ==========================================================
+   PANORAMA
+   ========================================================== */
+const COLS_PAN = [
+  { k: 'sku', t: 'SKU' },
+  { k: 'producto', t: 'Producto' },
+  { k: 'canales', t: 'Canales', noSort: true },
+  { k: 'full_u', t: 'Full', num: 1 },
+  { k: 'tr_full_u', t: '→Full', num: 1 },
+  { k: 'pack_u', t: 'Envío Pack', num: 1 },
+  { k: 'tr_pack_u', t: '→Pack', num: 1 },
+  { k: 'propio_u', t: 'Propio', num: 1 },
+  { k: 'total_u', t: 'Total', num: 1 },
+  { k: 'u7', t: 'Vta 7d', num: 1 },
+  { k: 'u30', t: 'Vta 30d', num: 1 },
+  { k: 'covF', t: 'Días Full', num: 1 },
+  { k: 'covP', t: 'Días Pack', num: 1 },
+  { k: 'estado', t: 'Estado' },
+];
+
+function panFiltrado() {
+  const q = ($('#q').value || '').toLowerCase().trim();
+  const canal = $('#fCanal').value, est = $('#fEstado').value;
+  let filas = ST.pan.map(derivar);
+  const qd = q.replace(/\D/g, '');
+  if (q) filas = filas.filter(r =>
+    r.sku.toLowerCase().includes(q) || (r.producto || '').toLowerCase().includes(q) ||
+    (qd.length >= 4 && (r.mlas || []).some(m => String(m).includes(qd))));
+  if (canal === 'full') filas = filas.filter(r => r.canal_full && !r.canal_pack);
+  if (canal === 'pack') filas = filas.filter(r => r.canal_pack && !r.canal_full);
+  if (canal === 'ambos') filas = filas.filter(r => r.canal_full && r.canal_pack);
+  if (est === 'quiebre') filas = filas.filter(r => r.estado === 'quiebre' || r.estado === 'quiebre_canal');
+  if (est === 'bajo') filas = filas.filter(r => r.estado === 'bajo');
+  if (est === 'sin') filas = filas.filter(r => r.total_u <= 0);
+  if (est === 'con') filas = filas.filter(r => r.total_u > 0);
+  if (est === 'muerto') filas = filas.filter(r => r.estado === 'muerto');
+  const { col, dir } = ST.orden;
+  filas.sort((a, b) => {
+    let x = a[col], y = b[col];
+    if (col === 'estado') { x = a.estadoTxt; y = b.estadoTxt; }
+    if (x === null || x === undefined) x = dir === 1 ? Infinity : -Infinity;
+    if (y === null || y === undefined) y = dir === 1 ? Infinity : -Infinity;
+    if (typeof x === 'string' || typeof y === 'string') return String(x).localeCompare(String(y)) * dir;
+    return (x - y) * dir;
+  });
+  return filas;
+}
+
+function pintarKpis() {
+  const f = ST.pan.map(derivar);
+  const suma = k => f.reduce((a, r) => a + (r[k] || 0), 0);
+  const quiebres = f.filter(r => r.estado === 'quiebre' || r.estado === 'quiebre_canal');
+  const bajos = f.filter(r => r.estado === 'bajo');
+  const quiebreVta = quiebres.reduce((a, r) => a + r.u30, 0);
+  const k = [
+    { c: 'full',  l: 'En Full',        v: num(suma('full_u')),   s: suma('tr_full_u') ? num(suma('tr_full_u')) + ' en camino' : 'sin envíos en camino' },
+    { c: 'pack',  l: 'En Envío Pack',  v: num(suma('pack_u')),   s: 'Colecta + Flex' + (suma('tr_pack_u') ? ' · ' + num(suma('tr_pack_u')) + ' en camino' : '') },
+    { c: 'propio',l: 'Depósito propio',v: num(suma('propio_u')), s: 'disponible para reponer' },
+    { c: '',      l: 'Unidades totales', v: num(suma('total_u')), s: f.length + ' SKU' },
+    { c: 'bad',   l: 'Quiebres',       v: num(quiebres.length),  s: quiebreVta ? num(quiebreVta) + ' u vendidas en 30d' : 'sin venta reciente' },
+    { c: 'warn',  l: 'Bajo mínimo',    v: num(bajos.length),     s: 'reponer esta semana' },
+    { c: '',      l: 'Vendidas 7d',    v: num(suma('u7')),       s: num(suma('u30')) + ' en 30 días' },
+  ];
+  $('#kpis').innerHTML = k.map(x => `<div class="kpi ${x.c}"><div class="lab">${x.l}</div><div class="val">${x.v}</div><div class="sub">${esc(x.s)}</div></div>`).join('');
+}
+
+function pintarPanorama() {
+  pintarKpis();
+  const filas = panFiltrado();
+  $('#cnt').textContent = `${num(filas.length)} de ${num(ST.pan.length)} SKU`;
+  const th = COLS_PAN.map(c => {
+    const act = ST.orden.col === c.k ? (ST.orden.dir === 1 ? ' ▲' : ' ▼') : '';
+    return `<th class="${c.num ? 'num' : ''}" data-c="${c.k}">${c.t}${act}</th>`;
+  }).join('');
+  $('#tPan thead').innerHTML = `<tr>${th}</tr>`;
+  const verMla = $('#fMla').checked;
+  const cap = filas.slice(0, 800);
+  $('#tPan tbody').innerHTML = cap.map(r => {
+    const tag = { ok: 'ok', bajo: 'warn', quiebre: 'bad', quiebre_canal: 'bad', sin: 'mut', muerto: 'info' }[r.estado] || 'mut';
+    const canales = (r.canal_full ? '<span class="tag info">Full</span> ' : '') + (r.canal_pack ? '<span class="tag warn">Pack</span>' : '');
+    const cel = v => v === null ? '<span class="muted2">—</span>' : dec(v, 0);
+    let html = `<tr data-sku="${esc(r.sku)}">
+      <td class="mono">${esc(r.sku)}</td>
+      <td title="${esc(r.producto)}">${esc((r.producto || '').slice(0, 46))}${r.variante ? ' <span class="muted2">· ' + esc(r.variante) + '</span>' : ''}</td>
+      <td>${canales}</td>
+      <td class="num" style="color:var(--full)">${num(r.full_u)}</td>
+      <td class="num muted2">${r.tr_full_u ? num(r.tr_full_u) : ''}</td>
+      <td class="num" style="color:var(--pack)">${num(r.pack_u)}</td>
+      <td class="num muted2">${r.tr_pack_u ? num(r.tr_pack_u) : ''}</td>
+      <td class="num" style="color:var(--propio)">${num(r.propio_u)}</td>
+      <td class="num"><b>${num(r.total_u)}</b></td>
+      <td class="num">${num(r.u7)}</td>
+      <td class="num">${num(r.u30)}</td>
+      <td class="num">${cel(r.covF)}</td>
+      <td class="num">${cel(r.covP)}</td>
+      <td><span class="tag ${tag}">${r.estadoTxt}</span></td></tr>`;
+    if (verMla && (r.mlas || []).length) {
+      html += (r.mlas || []).map(m => `<tr class="sub"><td></td><td colspan="13" class="mono">MLA${esc(m)} · <a href="https://articulo.mercadolibre.com.ar/MLA-${esc(m)}" target="_blank" rel="noopener">ver publicación</a></td></tr>`).join('');
+    }
+    return html;
+  }).join('') || `<tr><td colspan="14" class="muted" style="padding:26px;text-align:center">Sin datos. Cargá el maestro de SKU y el stock inicial.</td></tr>`;
+  if (filas.length > 800) $('#cnt').textContent += ' · mostrando 800';
+}
+
+/* ==========================================================
+   MOVIMIENTOS
+   ========================================================== */
+function movsFiltrados() {
+  const q = ($('#mq').value || '').toLowerCase().trim();
+  const t = $('#mTipo').value, d = $('#mDep').value, o = $('#mOrigen').value;
+  const desde = $('#mDesde').value ? new Date($('#mDesde').value + 'T00:00:00') : null;
+  const hasta = $('#mHasta').value ? new Date($('#mHasta').value + 'T23:59:59') : null;
+  return ST.movs.filter(m => {
+    if (q && !(String(m.sku).toLowerCase().includes(q) || String(m.detalle || '').toLowerCase().includes(q))) return false;
+    if (t && m.tipo !== t) return false;
+    if (d && m.deposito !== d) return false;
+    if (o && (m.origen || 'app') !== o) return false;
+    const f = new Date(m.fecha);
+    if (desde && f < desde) return false;
+    if (hasta && f > hasta) return false;
+    return true;
+  });
+}
+function pintarMovs() {
+  const filas = movsFiltrados();
+  $('#mCnt').textContent = `${num(filas.length)} movimientos`;
+  $('#tMov thead').innerHTML = `<tr><th>Fecha</th><th>SKU</th><th>Depósito</th><th>Tipo</th><th class="num">Unidades</th><th>Detalle</th><th>Origen</th><th>Quién</th></tr>`;
+  $('#tMov tbody').innerHTML = filas.slice(0, 900).map(m => {
+    const u = Number(m.unidades) || 0;
+    const col = u >= 0 ? 'var(--ok)' : 'var(--bad)';
+    const org = { worker: '<span class="tag info">ML auto</span>', import: '<span class="tag mut">reconcil.</span>' }[m.origen] || '<span class="tag mut">manual</span>';
+    return `<tr><td class="muted">${fechaCorta(m.fecha)}</td><td class="mono">${esc(m.sku)}</td>
+      <td>${DEPS[m.deposito]?.corto || m.deposito}</td><td>${esc(m.tipo)}</td>
+      <td class="num" style="color:${col}"><b>${u > 0 ? '+' : ''}${num(u)}</b></td>
+      <td class="muted" title="${esc(m.detalle)}">${esc(String(m.detalle || '').slice(0, 60))}</td>
+      <td>${org}</td><td class="muted2">${esc(m.autor || '')}</td></tr>`;
+  }).join('') || `<tr><td colspan="8" class="muted" style="padding:26px;text-align:center">Sin movimientos.</td></tr>`;
+}
+
+/* ==========================================================
+   CARGA MANUAL
+   ========================================================== */
+async function cargarManual() {
+  const sku = $('#cSku').value.trim();
+  const dep = $('#cDep').value, tipo = $('#cTipo').value;
+  let u = Math.round(numAR($('#cUnid').value));
+  if (!sku) return msgEn('#msgCarga', 'Falta el SKU.', 'err');
+  if (!u) return msgEn('#msgCarga', 'Las unidades no pueden ser 0.', 'err');
+  if (tipo === 'salida') u = -Math.abs(u);
+  if (tipo === 'ingreso' || tipo === 'devolucion') u = Math.abs(u);
+  try {
+    await DB.agregarMovs([{ sku, deposito: dep, tipo, unidades: u, detalle: $('#cDet').value.trim() || null }]);
+    msgEn('#msgCarga', `Listo: ${u > 0 ? '+' : ''}${num(u)} u de <b>${esc(sku)}</b> en ${DEPS[dep].nom}.`, 'ok');
+    $('#cUnid').value = 0; $('#cDet').value = '';
+    await recargar(); pintarUltimos();
+  } catch (e) { msgEn('#msgCarga', 'Error: ' + esc(e.message), 'err'); }
+}
+
+async function trasladar() {
+  const sku = $('#tSku').value.trim(), de = $('#tDe').value, a = $('#tA').value;
+  const u = Math.abs(Math.round(numAR($('#tUnid').value)));
+  if (!sku || !u) return toast('Falta SKU o unidades', 'err');
+  if (de === a) return toast('El origen y el destino son el mismo', 'err');
+  await DB.agregarMovs([
+    { sku, deposito: de, tipo: 'traslado', unidades: -u, detalle: `Traslado a ${DEPS[a].nom}` },
+    { sku, deposito: a,  tipo: 'traslado', unidades:  u, detalle: `Traslado desde ${DEPS[de].nom}` },
+  ]);
+  toast(`${num(u)} u de ${sku}: ${DEPS[de].corto} → ${DEPS[a].corto}`, 'ok');
+  $('#tUnid').value = 0;
+  await recargar();
+}
+
+function parsearPares(txt) {
+  const out = [];
+  for (const linea of String(txt || '').split(/\r?\n/)) {
+    const l = linea.trim();
+    if (!l) continue;
+    const p = l.split(/\t|;|,|\s{2,}|\s+(?=-?[\d.,]+$)/).map(s => s.trim()).filter(Boolean);
+    if (p.length < 2) continue;
+    const sku = p[0];
+    const u = Math.round(numAR(p[p.length - 1]));
+    if (!sku || isNaN(u)) continue;
+    out.push({ sku, u });
+  }
+  return out;
+}
+
+async function cargaMasiva() {
+  const pares = parsearPares($('#bTxt').value);
+  if (!pares.length) return toast('No encontré pares SKU / unidades', 'err');
+  const dep = $('#bDep').value, tipo = $('#bTipo').value, det = $('#bDet').value.trim() || null;
+  const filas = pares.map(p => ({
+    sku: p.sku, deposito: dep, tipo,
+    unidades: tipo === 'salida' ? -Math.abs(p.u) : (tipo === 'ingreso' ? Math.abs(p.u) : p.u),
+    detalle: det,
+  }));
+  await DB.agregarMovs(filas);
+  toast(`${filas.length} movimientos cargados en ${DEPS[dep].nom}`, 'ok');
+  $('#bTxt').value = '';
+  await recargar(); pintarUltimos();
+}
+
+function pintarUltimos() {
+  const m = ST.movs.filter(x => (x.origen || 'app') === 'app').slice(0, 8);
+  $('#ultimos').innerHTML = !m.length ? '' : `<h3 style="font-size:13px">Últimos movimientos manuales</h3>
+    <table style="font-size:12px">${m.map(x => `<tr><td class="muted">${fechaCorta(x.fecha)}</td><td class="mono">${esc(x.sku)}</td>
+    <td>${DEPS[x.deposito]?.corto || ''}</td><td>${esc(x.tipo)}</td>
+    <td class="num" style="color:${x.unidades >= 0 ? 'var(--ok)' : 'var(--bad)'}">${x.unidades > 0 ? '+' : ''}${num(x.unidades)}</td>
+    <td class="muted2">${esc(x.autor || '')}</td></tr>`).join('')}</table>`;
+}
+
+/* ==========================================================
+   REMITOS / TRANSITO
+   ========================================================== */
+function pintarLineasRemito() {
+  const cont = $('#rLineas');
+  if (!ST.lineasRemito.length) ST.lineasRemito = [{ sku: '', u: '' }];
+  cont.innerHTML = ST.lineasRemito.map((l, i) => `<div class="pack-line">
+    <input type="text" list="dlSku" value="${esc(l.sku)}" data-i="${i}" data-f="sku" placeholder="SKU">
+    <input type="number" value="${esc(l.u)}" data-i="${i}" data-f="u" placeholder="unidades" style="width:110px">
+    <button class="btn sm gh" data-del="${i}">✕</button></div>`).join('');
+  cont.oninput = e => {
+    const i = e.target.dataset.i; if (i === undefined) return;
+    ST.lineasRemito[i][e.target.dataset.f] = e.target.value;
+    totRemito();
+  };
+  cont.onclick = e => {
+    const d = e.target.dataset.del; if (d === undefined) return;
+    ST.lineasRemito.splice(+d, 1); pintarLineasRemito();
+  };
+  totRemito();
+}
+function totRemito() {
+  const t = ST.lineasRemito.reduce((a, l) => a + Math.abs(Math.round(numAR(l.u))), 0);
+  const n = ST.lineasRemito.filter(l => l.sku.trim() && numAR(l.u)).length;
+  $('#rTot').textContent = t ? `${n} SKU · ${num(t)} unidades` : '';
+}
+async function guardarRemito() {
+  const lineas = ST.lineasRemito.map(l => ({ sku: l.sku.trim(), u: Math.abs(Math.round(numAR(l.u))) })).filter(l => l.sku && l.u);
+  if (!lineas.length) return toast('Cargá al menos una línea', 'err');
+  const destino = $('#rDest').value;
+  const id = ($('#rId').value.trim()) || nuevoRemitoId();
+  const tr = destino === 'FULL' ? 'TR_FULL' : 'TR_PACK';
+  await DB.guardarRemito({
+    id, destino, estado: 'en_transito', fecha_envio: hoy(),
+    bultos: Math.round(numAR($('#rBultos').value)) || null,
+    detalle: $('#rDet').value.trim() || null, autor: ST.autor || 'equipo', actualizado: hoy(),
+  });
+  const movs = [];
+  for (const l of lineas) {
+    movs.push({ sku: l.sku, deposito: 'PROPIO', tipo: 'envio', unidades: -l.u, remito: id, detalle: `Envío ${id} a ${DEPS[destino].nom}` });
+    movs.push({ sku: l.sku, deposito: tr, tipo: 'envio', unidades: l.u, remito: id, detalle: `En camino a ${DEPS[destino].nom} (${id})` });
+  }
+  await DB.agregarMovs(movs);
+  toast(`Remito ${id} registrado: ${lineas.length} SKU en camino a ${DEPS[destino].corto}`, 'ok');
+  ST.lineasRemito = [{ sku: '', u: '' }]; $('#rId').value = ''; $('#rBultos').value = ''; $('#rDet').value = '';
+  pintarLineasRemito(); await recargar();
+}
+function nuevoRemitoId() {
+  const y = new Date().getFullYear();
+  const n = ST.remitos.filter(r => String(r.id).startsWith('R-' + y)).length + 1;
+  return `R-${y}-${String(n).padStart(4, '0')}`;
+}
+async function recibirRemito(id, parcial) {
+  const r = ST.remitos.find(x => x.id === id);
+  if (!r) return;
+  const tr = r.destino === 'FULL' ? 'TR_FULL' : 'TR_PACK';
+  const movs = await DB.movsDeRemito(id);
+  const porSku = new Map();
+  movs.filter(m => m.deposito === tr).forEach(m => porSku.set(m.sku, (porSku.get(m.sku) || 0) + (Number(m.unidades) || 0)));
+  const pend = Array.from(porSku.entries()).filter(([, u]) => u > 0);
+  if (!pend.length) { toast('Ese remito ya está ingresado', 'err'); return; }
+  if (parcial) return modalRecepcion(r, pend);
+  await aplicarRecepcion(r, pend.map(([sku, u]) => ({ sku, u })));
+}
+async function aplicarRecepcion(r, lineas) {
+  const tr = r.destino === 'FULL' ? 'TR_FULL' : 'TR_PACK';
+  const movs = [];
+  for (const l of lineas) {
+    if (!l.u) continue;
+    movs.push({ sku: l.sku, deposito: tr, tipo: 'recepcion', unidades: -l.u, remito: r.id, detalle: `Ingresó en ${DEPS[r.destino].nom}` });
+    movs.push({ sku: l.sku, deposito: r.destino, tipo: 'recepcion', unidades: l.u, remito: r.id, detalle: `Ingreso remito ${r.id}` });
+  }
+  if (!movs.length) return;
+  await DB.agregarMovs(movs);
+  const restante = await pendienteRemito(r);
+  await DB.guardarRemito({ ...r, estado: restante > 0 ? 'en_transito' : 'recibido', fecha_recep: restante > 0 ? null : hoy(), actualizado: hoy() });
+  toast(`Ingreso registrado en ${DEPS[r.destino].corto}`, 'ok');
+  cerrarModal(); await recargar();
+}
+async function pendienteRemito(r) {
+  const tr = r.destino === 'FULL' ? 'TR_FULL' : 'TR_PACK';
+  const movs = await DB.movsDeRemito(r.id);
+  return movs.filter(m => m.deposito === tr).reduce((a, m) => a + (Number(m.unidades) || 0), 0);
+}
+function modalRecepcion(r, pend) {
+  abrirModal(`<h3>Ingreso parcial · remito ${esc(r.id)}</h3>
+    <p class="muted">Poné cuántas unidades entraron realmente en ${DEPS[r.destino].nom}. Lo que falte queda en camino.</p>
+    <table style="width:100%"><thead><tr><th>SKU</th><th class="num">En camino</th><th class="num">Ingresaron</th></tr></thead>
+    <tbody>${pend.map(([sku, u]) => `<tr><td class="mono">${esc(sku)}</td><td class="num">${num(u)}</td>
+      <td class="num"><input type="number" data-sku="${esc(sku)}" data-max="${u}" value="${u}" style="width:100px"></td></tr>`).join('')}</tbody></table>
+    <div class="bar" style="margin-top:12px"><div class="grow"></div>
+      <button class="btn" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn pri" id="btnRecOk">Confirmar ingreso</button></div>`);
+  $('#btnRecOk').onclick = async () => {
+    const lineas = $$('#modalBox input[data-sku]').map(i => ({ sku: i.dataset.sku, u: Math.min(Math.abs(Math.round(numAR(i.value))), +i.dataset.max) }));
+    await aplicarRecepcion(r, lineas);
+  };
+}
+async function pintarRemitos() {
+  const enT = ST.remitos.filter(r => r.estado === 'en_transito');
+  $('#rTransito').innerHTML = !enT.length
+    ? '<p class="muted">No hay mercadería en camino.</p>'
+    : enT.map(r => `<div class="card" style="background:var(--panel2);margin-bottom:8px">
+        <div class="bar" style="margin:0">
+          <b class="mono">${esc(r.id)}</b>
+          <span class="tag ${r.destino === 'FULL' ? 'info' : 'warn'}">${DEPS[r.destino].nom}</span>
+          <span class="muted">salió ${fechaCorta(r.fecha_envio)}</span>
+          ${r.bultos ? `<span class="muted2">${num(r.bultos)} bultos</span>` : ''}
+          ${r.detalle ? `<span class="muted2">${esc(r.detalle)}</span>` : ''}
+          <div class="grow"></div>
+          <button class="btn sm" data-parc="${esc(r.id)}">Ingreso parcial</button>
+          <button class="btn sm pri" data-rec="${esc(r.id)}">Ingresó todo</button>
+        </div></div>`).join('');
+  $('#rTransito').onclick = e => {
+    if (e.target.dataset.rec) recibirRemito(e.target.dataset.rec, false);
+    if (e.target.dataset.parc) recibirRemito(e.target.dataset.parc, true);
+  };
+  $('#tRem thead').innerHTML = '<tr><th>Remito</th><th>Destino</th><th>Estado</th><th>Salida</th><th>Ingreso</th><th class="num">Bultos</th><th>Detalle</th><th>Quién</th></tr>';
+  $('#tRem tbody').innerHTML = ST.remitos.map(r => `<tr><td class="mono">${esc(r.id)}</td>
+    <td>${DEPS[r.destino]?.nom || r.destino}</td>
+    <td><span class="tag ${r.estado === 'recibido' ? 'ok' : r.estado === 'anulado' ? 'mut' : 'warn'}">${esc(r.estado.replace('_', ' '))}</span></td>
+    <td class="muted">${fechaCorta(r.fecha_envio)}</td><td class="muted">${r.fecha_recep ? fechaCorta(r.fecha_recep) : '—'}</td>
+    <td class="num">${r.bultos ? num(r.bultos) : ''}</td><td class="muted2">${esc(r.detalle || '')}</td>
+    <td class="muted2">${esc(r.autor || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="muted" style="padding:20px;text-align:center">Sin remitos.</td></tr>';
+}
+
+/* ==========================================================
+   PEGAR BASES DE ML
+   ========================================================== */
+const BASES = {
+  FULL: {
+    nom: 'Reporte de Planificación de Full',
+    cols: ['unidades aptas', 'aptas', 'stock disponible', 'disponible'],
+    ayuda: 'Del <b>Reporte de Planificación</b> de ML toma la columna <b>Unidades aptas</b> (el stock que hoy está vendible en Full). Los números con punto de miles ("1.825") los interpreta bien.',
+  },
+  PACK: {
+    nom: 'export de Envíopack',
+    cols: ['unidades en enviopack', 'unidades', 'stock', 'disponible', 'cantidad'],
+    ayuda: 'Del export de <b>Envíopack</b> (productos_simples) toma la columna de <b>unidades</b>. Ojo: "En preparación" no cuenta como stock disponible. Este es el stock que comparten Colecta y Flex.',
+  },
+  PROPIO: {
+    nom: 'export del ERP',
+    cols: ['cantidad disponible para uso', 'disponible', 'cantidad', 'stock'],
+    ayuda: 'Del export del <b>ERP</b> toma <b>Referencia interna</b> como SKU y <b>Cantidad disponible para uso</b> como stock.',
+  },
+};
+
+/* Detecta encabezado, columna de SKU y columna de stock sobre una matriz de filas */
+function detectarEnFilas(filas, dep) {
+  if (!filas || !filas.length) return null;
+  let hi = 0, mejor = -1;
+  for (let i = 0; i < Math.min(12, filas.length); i++) {
+    const n = (filas[i] || []).filter(c => String(c).trim()).length;
+    if (n > mejor) { mejor = n; hi = i; }
+  }
+  const heads = (filas[hi] || []).map(h => String(h).toLowerCase().trim());
+  const buscar = (...claves) => heads.findIndex(h => h && claves.some(k => h.includes(k)));
+  const cSku = buscar('sku', 'referencia interna', 'codigo', 'código');
+  let cU = buscar(...BASES[dep].cols);
+  if (cU < 0) cU = buscar('stock', 'cantidad', 'unidades', 'disponible');
+  if (cSku < 0 || cU < 0 || cSku === cU) return null;
+  const cNom = buscar('nombre en pantalla', 'producto', 'título', 'titulo', 'descripcion', 'descripción');
+  const pares = [];
+  for (let i = hi + 1; i < filas.length; i++) {
+    const sku = String(filas[i]?.[cSku] ?? '').trim();
+    if (!sku) continue;
+    pares.push({ sku, u: Math.round(numAR(filas[i][cU])), nombre: cNom >= 0 ? String(filas[i][cNom] ?? '').trim() : '' });
+  }
+  return pares.length ? { pares, col: heads[cU] || '', colSku: heads[cSku] || '' } : null;
+}
+
+/* Lee un Excel y devuelve la hoja que mejor matchea */
+function leerExcelStock(wb, dep) {
+  const cands = [];
+  for (const nombre of wb.SheetNames) {
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, defval: '' });
+    const r = detectarEnFilas(filas, dep);
+    if (r) cands.push({ hoja: nombre, ...r });
+  }
+  cands.sort((a, b) => b.pares.length - a.pares.length);
+  return cands[0] || null;
+}
+
+/* Convierte el texto pegado desde Excel en una matriz de filas */
+function filasDeTexto(txt) {
+  const lineas = String(txt || '').split(/\r?\n/).filter(l => l.trim());
+  if (!lineas.length) return [];
+  const sep = lineas.some(l => l.includes('\t')) ? '\t'
+    : lineas.some(l => l.includes(';')) ? ';'
+    : lineas.filter(l => l.includes(',')).length > lineas.length / 2 ? ','
+    : /\s{2,}/.test(lineas[0]) ? 'esp' : '\t';
+  return lineas.map(l => (sep === 'esp' ? l.split(/\s{2,}/) : l.split(sep)).map(c => c.trim()));
+}
+
+function pegarBase() {
+  const dep = $('#recDep').value;
+  const txt = $('#recTxt').value;
+  if (!txt.trim()) return msgEn('#recMsg', 'Pegá primero la base.', 'err');
+  const filas = filasDeTexto(txt);
+  const r = detectarEnFilas(filas, dep);
+  if (r) {
+    msgEn('#recMsg', '');
+    return compararStock(r.pares, dep,
+      `Pegado del ${esc(BASES[dep].nom)} · ${num(r.pares.length)} filas · SKU de la columna "${esc(r.colSku)}" y stock de "${esc(r.col)}".`);
+  }
+  // sin encabezado reconocible: probar dos columnas sueltas
+  const p = parsearPares(txt);
+  if (!p.length) return msgEn('#recMsg',
+    'No pude reconocer las columnas. Copiá el bloque incluyendo la fila de títulos, o dejá dos columnas: SKU y unidades.', 'err');
+  msgEn('#recMsg', '');
+  compararStock(p, dep, `${num(p.length)} líneas leídas como SKU y unidades (sin fila de títulos).`);
+}
+
+function pintarAyudaBase() {
+  const dep = $('#recDep').value;
+  $('#recAyuda').innerHTML = BASES[dep].ayuda;
+  pintarResumenPegado();
+}
+function pintarResumenPegado() {
+  const filas = filasDeTexto($('#recTxt').value);
+  $('#recResumenPegado').textContent = filas.length ? `${num(filas.length)} líneas pegadas` : '';
+}
+
+function compararStock(pares, dep, nota) {
+  const campo = { FULL: 'full_u', PACK: 'pack_u', PROPIO: 'propio_u' }[dep];
+  const actual = new Map(ST.pan.map(r => [String(r.sku).trim(), r]));
+  // agrupar por SKU (un SKU puede repetirse en el archivo)
+  const real = new Map();
+  pares.forEach(p => real.set(String(p.sku).trim(), (real.get(String(p.sku).trim()) || 0) + p.u));
+
+  const difs = [];
+  for (const [sku, u] of real) {
+    const r = actual.get(sku);
+    const sis = r ? (r[campo] || 0) : 0;
+    if (u !== sis) difs.push({ sku, sistema: sis, real: u, dif: u - sis, nuevo: !r, producto: r?.producto || '' });
+  }
+  if ($('#recFalt').value === 'cero') {
+    for (const r of ST.pan) {
+      if (!real.has(r.sku) && (r[campo] || 0) !== 0) difs.push({ sku: r.sku, sistema: r[campo], real: 0, dif: -r[campo], producto: r.producto });
+    }
+  }
+  difs.sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+  ST.recPend = { dep, difs, nota };
+  pintarPreviewRec();
+}
+
+function pintarPreviewRec() {
+  const p = ST.recPend;
+  if (!p) { $('#recPrev').innerHTML = ''; return; }
+  const suben = p.difs.filter(d => d.dif > 0), bajan = p.difs.filter(d => d.dif < 0);
+  const nuevos = p.difs.filter(d => d.nuevo).length;
+  $('#recPrev').innerHTML = `
+    <div class="msg ${p.difs.length ? 'warn' : 'ok'}">
+      ${p.nota ? esc(p.nota) + '<br>' : ''}
+      ${p.difs.length
+        ? `<b>${num(p.difs.length)} SKU con diferencia</b> en ${DEPS[p.dep].nom}:
+           ${num(suben.length)} suman (${num(suben.reduce((a, d) => a + d.dif, 0))} u),
+           ${num(bajan.length)} bajan (${num(bajan.reduce((a, d) => a + d.dif, 0))} u)${nuevos ? ` · ${nuevos} SKU no están en el maestro` : ''}.`
+        : 'El sistema ya coincide con la base. No hay nada que ajustar.'}
+    </div>
+    ${p.difs.length ? `<div class="bar">
+      <button class="btn pri" id="btnRecAplicar">Aplicar ${num(p.difs.length)} ajustes</button>
+      <button class="btn" id="btnRecCancel">Descartar</button>
+      <div class="grow"></div><button class="btn sm" id="btnRecCsv">CSV</button></div>
+    <div class="tblwrap" style="max-height:48vh"><table><thead><tr><th>SKU</th><th>Producto</th>
+      <th class="num">Sistema</th><th class="num">Real</th><th class="num">Ajuste</th></tr></thead>
+      <tbody>${p.difs.slice(0, 500).map(d => `<tr><td class="mono">${esc(d.sku)}${d.nuevo ? ' <span class="tag mut">nuevo</span>' : ''}</td>
+        <td class="muted">${esc((d.producto || '').slice(0, 40))}</td><td class="num">${num(d.sistema)}</td>
+        <td class="num">${num(d.real)}</td>
+        <td class="num" style="color:${d.dif > 0 ? 'var(--ok)' : 'var(--bad)'}"><b>${d.dif > 0 ? '+' : ''}${num(d.dif)}</b></td></tr>`).join('')}
+      </tbody></table></div>` : ''}`;
+  if (p.difs.length) {
+    $('#btnRecAplicar').onclick = aplicarRec;
+    $('#btnRecCancel').onclick = () => { ST.recPend = null; pintarPreviewRec(); };
+    $('#btnRecCsv').onclick = () => bajarCsv('diferencias-' + p.dep + '.csv',
+      ['SKU', 'Producto', 'Sistema', 'Real', 'Ajuste'], p.difs.map(d => [d.sku, d.producto, d.sistema, d.real, d.dif]));
+  }
+}
+
+async function aplicarRec() {
+  const p = ST.recPend; if (!p) return;
+  const det = `Reconciliación ${DEPS[p.dep].nom} ${new Date().toLocaleDateString('es-AR')}`;
+  const movs = p.difs.map(d => ({ sku: d.sku, deposito: p.dep, tipo: 'ajuste', unidades: d.dif, detalle: det, origen: 'import' }));
+  try {
+    await DB.agregarMovs(movs);
+    const nuevos = p.difs.filter(d => d.nuevo).map(d => ({ sku: d.sku, producto: d.producto || null }));
+    if (nuevos.length) await DB.guardarMaestro(nuevos);
+    toast(`${movs.length} ajustes aplicados en ${DEPS[p.dep].nom}`, 'ok');
+    ST.recPend = null;
+    await recargar(); pintarPreviewRec();
+  } catch (e) { msgEn('#recMsg', 'Error al aplicar: ' + esc(e.message), 'err'); }
+}
+
+/* ==========================================================
+   MAESTRO
+   ========================================================== */
+function pintarMaestro() {
+  const q = ($('#maq').value || '').toLowerCase().trim();
+  let filas = ST.maestro.slice();
+  if (q) filas = filas.filter(m => m.sku.toLowerCase().includes(q) || (m.producto || '').toLowerCase().includes(q) || (m.mlas || []).some(x => String(x).includes(q)));
+  const { col, dir } = ST.ordenMa;
+  filas.sort((a, b) => String(a[col] ?? '').localeCompare(String(b[col] ?? ''), 'es', { numeric: true }) * dir);
+  $('#tMa thead').innerHTML = `<tr><th data-c="sku">SKU</th><th data-c="producto">Producto</th><th data-c="variante">Variante</th>
+    <th data-c="categoria">Categoría</th><th>Publicaciones</th><th>Full</th><th>Pack</th>
+    <th class="num">Mín. Full</th><th class="num">Mín. Pack</th><th class="num">Cob. días</th><th></th></tr>`;
+  $('#tMa tbody').innerHTML = filas.slice(0, 600).map(m => `<tr data-sku="${esc(m.sku)}">
+    <td class="mono">${esc(m.sku)}</td><td>${esc((m.producto || '').slice(0, 44))}</td><td class="muted">${esc(m.variante || '')}</td>
+    <td class="muted">${esc(m.categoria || '')}</td>
+    <td class="mono muted2">${esc((m.mlas || []).slice(0, 3).join(', '))}${(m.mlas || []).length > 3 ? ' +' + ((m.mlas || []).length - 3) : ''}</td>
+    <td>${m.canal_full !== false ? '<span class="tag info">sí</span>' : '<span class="tag mut">no</span>'}</td>
+    <td>${m.canal_pack !== false ? '<span class="tag warn">sí</span>' : '<span class="tag mut">no</span>'}</td>
+    <td class="num">${num(m.min_full || 0)}</td><td class="num">${num(m.min_pack || 0)}</td><td class="num">${num(m.cobertura_dias || 21)}</td>
+    <td><button class="btn sm gh" data-ed="${esc(m.sku)}">editar</button></td></tr>`).join('')
+    || '<tr><td colspan="11" class="muted" style="padding:26px;text-align:center">Todavía no hay SKU. Importá un Excel o creá uno.</td></tr>';
+}
+
+function editorSku(sku) {
+  const m = ST.maestro.find(x => x.sku === sku) || { sku: '', mlas: [], canal_full: true, canal_pack: true, cobertura_dias: 21 };
+  abrirModal(`<h3>${sku ? 'Editar ' + esc(sku) : 'Nuevo SKU'}</h3>
+    <div class="grid2">
+      <label class="fld">SKU<input type="text" id="eSku" value="${esc(m.sku)}" ${sku ? 'readonly' : ''}></label>
+      <label class="fld">Producto<input type="text" id="eProd" value="${esc(m.producto || '')}"></label>
+      <label class="fld">Variante<input type="text" id="eVar" value="${esc(m.variante || '')}"></label>
+      <label class="fld">Categoría<input type="text" id="eCat" value="${esc(m.categoria || '')}"></label>
+      <label class="fld">Publicaciones (MLA, separadas por coma)<input type="text" id="eMlas" value="${esc((m.mlas || []).join(', '))}"></label>
+      <label class="fld">Cobertura objetivo (días)<input type="number" id="eCob" value="${m.cobertura_dias || 21}"></label>
+      <label class="fld">Mínimo en Full<input type="number" id="eMinF" value="${m.min_full || 0}"></label>
+      <label class="fld">Mínimo en Envío Pack<input type="number" id="eMinP" value="${m.min_pack || 0}"></label>
+    </div>
+    <div class="bar" style="margin-top:12px">
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="eCF" ${m.canal_full !== false ? 'checked' : ''}> se vende por Full</label>
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="eCP" ${m.canal_pack !== false ? 'checked' : ''}> se vende por Envío Pack</label>
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="eAct" ${m.activo !== false ? 'checked' : ''}> activo</label>
+      <div class="grow"></div>
+      ${sku ? '<button class="btn" id="eDel">Borrar</button>' : ''}
+      <button class="btn" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn pri" id="eOk">Guardar</button></div>`);
+  $('#eOk').onclick = async () => {
+    const s = $('#eSku').value.trim(); if (!s) return toast('Falta el SKU', 'err');
+    await DB.guardarMaestro([{
+      sku: s, producto: $('#eProd').value.trim() || null, variante: $('#eVar').value.trim() || null,
+      categoria: $('#eCat').value.trim() || null,
+      mlas: $('#eMlas').value.split(',').map(x => soloDig(x)).filter(Boolean),
+      canal_full: $('#eCF').checked, canal_pack: $('#eCP').checked, activo: $('#eAct').checked,
+      min_full: Math.round(numAR($('#eMinF').value)), min_pack: Math.round(numAR($('#eMinP').value)),
+      cobertura_dias: Math.round(numAR($('#eCob').value)) || 21,
+    }]);
+    cerrarModal(); toast('Guardado', 'ok'); await recargar();
+  };
+  if (sku && $('#eDel')) $('#eDel').onclick = async () => {
+    if (!confirm(`¿Borrar ${sku} del maestro? Los movimientos quedan.`)) return;
+    await DB.borrarMaestro(sku); cerrarModal(); await recargar();
+  };
+}
+
+function importarMaestro(wb) {
+  let mejor = null;
+  for (const n of wb.SheetNames) {
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '' });
+    if (!filas.length) continue;
+    let hi = 0, m = -1;
+    for (let i = 0; i < Math.min(10, filas.length); i++) { const c = filas[i].filter(x => String(x).trim()).length; if (c > m) { m = c; hi = i; } }
+    const heads = filas[hi].map(h => String(h).toLowerCase().trim());
+    const b = (...k) => heads.findIndex(h => k.some(x => h.includes(x)));
+    const cSku = b('sku', 'referencia interna', 'codigo', 'código');
+    if (cSku < 0) continue;
+    const idx = {
+      sku: cSku, prod: b('producto', 'nombre', 'título', 'titulo', 'descripcion'), varn: b('variante', 'color', 'medida'),
+      cat: b('categoria', 'categoría', 'rubro'), mla: b('mla', 'publicacion', 'publicación', 'item_id'),
+      cf: b('canal full', 'full'), cp: b('canal pack', 'pack', 'flex'),
+      mf: b('minimo full', 'mínimo full', 'min full'), mp: b('minimo pack', 'mínimo pack', 'min pack'),
+      cob: b('cobertura'),
+    };
+    const out = [];
+    for (let i = hi + 1; i < filas.length; i++) {
+      const sku = String(filas[i][idx.sku] ?? '').trim(); if (!sku) continue;
+      const si = v => { const s = String(v ?? '').toLowerCase().trim(); return s ? !(s === 'no' || s === 'n' || s === 'false' || s === '0') : true; };
+      out.push({
+        sku,
+        producto: idx.prod >= 0 ? String(filas[i][idx.prod] ?? '').trim() || null : null,
+        variante: idx.varn >= 0 ? String(filas[i][idx.varn] ?? '').trim() || null : null,
+        categoria: idx.cat >= 0 ? String(filas[i][idx.cat] ?? '').trim() || null : null,
+        mlas: idx.mla >= 0 ? String(filas[i][idx.mla] ?? '').split(/[,;\s]+/).map(soloDig).filter(Boolean) : [],
+        canal_full: idx.cf >= 0 ? si(filas[i][idx.cf]) : true,
+        canal_pack: idx.cp >= 0 ? si(filas[i][idx.cp]) : true,
+        min_full: idx.mf >= 0 ? Math.round(numAR(filas[i][idx.mf])) : 0,
+        min_pack: idx.mp >= 0 ? Math.round(numAR(filas[i][idx.mp])) : 0,
+        cobertura_dias: idx.cob >= 0 ? Math.round(numAR(filas[i][idx.cob])) || 21 : 21,
+      });
+    }
+    if (!mejor || out.length > mejor.length) mejor = out;
+  }
+  return mejor || [];
+}
+
+/* ==========================================================
+   MODAL / CSV / CONFIG
+   ========================================================== */
+function abrirModal(html) { $('#modalBox').innerHTML = html; $('#modal').classList.add('on'); }
+function cerrarModal() { $('#modal').classList.remove('on'); }
+window.cerrarModal = cerrarModal;
+
+function bajarCsv(nombre, heads, filas) {
+  const esc2 = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = '﻿' + [heads.map(esc2).join(';'), ...filas.map(f => f.map(esc2).join(';'))].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = nombre; a.click();
+}
+
+function modalConfig() {
+  abrirModal(`<h3>Conexión</h3>
+    <p class="muted">La app guarda todo en Supabase para que el equipo vea lo mismo desde cualquier computadora.
+    Si la dejás vacía, funciona en esta computadora sola.</p>
+    <div class="grid2">
+      <label class="fld">URL de Supabase<input type="text" id="kUrl" value="${esc(ST.cfg.url)}" placeholder="https://xxxx.supabase.co"></label>
+      <label class="fld">Anon key<input type="text" id="kKey" value="${esc(ST.cfg.key ? ST.cfg.key.slice(0, 24) + '…' : '')}" placeholder="eyJ…"></label>
+    </div>
+    <div class="hint">Estado: ${ST.modo === 'sb' ? 'conectada a Supabase' : 'modo local (solo esta computadora)'}</div>
+    <div class="bar" style="margin-top:14px"><button class="btn" id="cfgBorrar">Borrar config</button>
+      <div class="grow"></div><button class="btn" onclick="cerrarModal()">Cerrar</button>
+      <button class="btn pri" id="cfgOk">Guardar y reconectar</button></div>`);
+  $('#cfgOk').onclick = () => {
+    const url = $('#kUrl').value.trim(), key = $('#kKey').value.trim();
+    if (url && key && !key.includes('…')) lsSet('stockops_cfg', JSON.stringify({ url, key }));
+    location.reload();
+  };
+  $('#cfgBorrar').onclick = () => { lsSet('stockops_cfg', ''); location.reload(); };
+}
+
+/* ==========================================================
+   ARRANQUE
+   ========================================================== */
+async function recargar() {
+  try {
+    const [pan, ma, movs, rem, sync] = await Promise.all([
+      DB.panorama(), DB.maestro(), DB.movimientos(), DB.remitos(), DB.estadoSync(),
+    ]);
+    ST.pan = pan; ST.maestro = ma; ST.movs = movs; ST.remitos = rem; ST.sync = sync;
+    $('#dlSku').innerHTML = ST.pan.slice(0, 3000).map(r => `<option value="${esc(r.sku)}">${esc((r.producto || '').slice(0, 40))}</option>`).join('');
+    pintarPanorama(); pintarMovs(); pintarRemitos(); pintarMaestro(); pintarUltimos(); pintarSync();
+  } catch (e) {
+    toast('Error al leer: ' + e.message, 'err');
+  }
+}
+
+function pintarSync() {
+  const s = ST.sync;
+  const p = $('#pillSync'), d = p.querySelector('.dot');
+  if (!s || !s.ultima_corrida) { $('#txtSync').textContent = 'sync ML: sin datos'; d.className = 'dot'; return; }
+  const min = Math.round((Date.now() - new Date(s.ultima_corrida).getTime()) / 60000);
+  d.className = 'dot ' + (s.error ? 'off' : min < 30 ? 'on' : 'mid');
+  $('#txtSync').textContent = s.error ? 'sync ML con error' : `ventas ML: hace ${min < 1 ? 'menos de 1' : min} min`;
+  p.title = s.error || `Última corrida ${fechaCorta(s.ultima_corrida)} · ${num(s.ordenes || 0)} órdenes`;
+}
+
+function eventos() {
+  $$('nav button').forEach(b => b.onclick = () => {
+    $$('nav button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+    $$('.page').forEach(p => p.classList.remove('on')); $('#p-' + b.dataset.p).classList.add('on');
+  });
+
+  ['#q', '#fCanal', '#fEstado', '#fMla'].forEach(s => $(s).addEventListener('input', pintarPanorama));
+  $('#tPan thead').onclick = e => {
+    const c = e.target.dataset.c; if (!c) return;
+    ST.orden = { col: c, dir: ST.orden.col === c ? -ST.orden.dir : (['sku', 'producto', 'estado'].includes(c) ? 1 : -1) };
+    pintarPanorama();
+  };
+  $('#btnCsv').onclick = () => bajarCsv('stock-panorama.csv',
+    ['SKU', 'Producto', 'Full', 'En camino Full', 'Envio Pack', 'En camino Pack', 'Propio', 'Total', 'Vta 7d', 'Vta 30d', 'Dias Full', 'Dias Pack', 'Estado'],
+    panFiltrado().map(r => [r.sku, r.producto, r.full_u, r.tr_full_u, r.pack_u, r.tr_pack_u, r.propio_u, r.total_u, r.u7, r.u30,
+      r.covF === null ? '' : Math.round(r.covF), r.covP === null ? '' : Math.round(r.covP), r.estadoTxt]));
+
+  $('#mTipo').innerHTML = '<option value="">Todos los tipos</option>' + TIPOS.map(t => `<option>${t}</option>`).join('');
+  ['#mq', '#mTipo', '#mDep', '#mOrigen', '#mDesde', '#mHasta'].forEach(s => $(s).addEventListener('input', pintarMovs));
+  $('#btnMovCsv').onclick = () => bajarCsv('movimientos.csv', ['Fecha', 'SKU', 'Deposito', 'Tipo', 'Unidades', 'Detalle', 'Origen', 'Quien'],
+    movsFiltrados().map(m => [m.fecha, m.sku, m.deposito, m.tipo, m.unidades, m.detalle, m.origen, m.autor]));
+
+  $('#btnCarga').onclick = cargarManual;
+  $('#btnTras').onclick = trasladar;
+  $('#btnBulk').onclick = cargaMasiva;
+
+  $('#btnRLinea').onclick = () => { ST.lineasRemito.push({ sku: '', u: '' }); pintarLineasRemito(); };
+  $('#btnRPegar').onclick = () => {
+    abrirModal(`<h3>Pegar líneas</h3><p class="muted">Dos columnas: SKU y unidades.</p>
+      <textarea id="pgTxt" rows="10"></textarea>
+      <div class="bar" style="margin-top:10px"><div class="grow"></div>
+      <button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn pri" id="pgOk">Agregar</button></div>`);
+    $('#pgOk').onclick = () => {
+      const p = parsearPares($('#pgTxt').value);
+      if (!p.length) return toast('No encontré pares', 'err');
+      ST.lineasRemito = ST.lineasRemito.filter(l => l.sku.trim()).concat(p.map(x => ({ sku: x.sku, u: x.u })));
+      cerrarModal(); pintarLineasRemito();
+    };
+  };
+  $('#btnRGuardar').onclick = guardarRemito;
+
+  $('#btnRecFile').onclick = () => $('#recFile').click();
+  $('#recDrop').onclick = () => $('#recFile').click();
+  $('#recFile').onchange = e => { if (e.target.files[0]) leerArchivoRec(e.target.files[0]); };
+  ['dragover', 'dragenter'].forEach(ev => $('#recDrop').addEventListener(ev, e => { e.preventDefault(); $('#recDrop').style.borderColor = 'var(--acc)'; }));
+  $('#recDrop').addEventListener('dragleave', () => $('#recDrop').style.borderColor = '');
+  $('#recDrop').addEventListener('drop', e => {
+    e.preventDefault(); $('#recDrop').style.borderColor = '';
+    if (e.dataTransfer.files[0]) leerArchivoRec(e.dataTransfer.files[0]);
+  });
+  $('#btnRecTxt').onclick = pegarBase;
+  $('#btnRecLimpiar').onclick = () => { $('#recTxt').value = ''; ST.recPend = null; msgEn('#recMsg', ''); pintarPreviewRec(); pintarResumenPegado(); };
+  $('#recDep').addEventListener('change', pintarAyudaBase);
+  $('#recTxt').addEventListener('input', pintarResumenPegado);
+  pintarAyudaBase();
+
+  $('#btnMaImp').onclick = () => $('#maFile').click();
+  $('#maFile').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (typeof XLSX === 'undefined') return msgEn('#maMsg', 'No se pudo cargar el lector de Excel (sin internet o bloqueado).', 'err');
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+    const filas = importarMaestro(wb);
+    if (!filas.length) return msgEn('#maMsg', 'No encontré una columna de SKU en ese archivo.', 'err');
+    await DB.guardarMaestro(filas);
+    msgEn('#maMsg', `${num(filas.length)} SKU importados.`, 'ok');
+    await recargar();
+  };
+  $('#btnMaNuevo').onclick = () => editorSku('');
+  $('#maq').addEventListener('input', pintarMaestro);
+  $('#tMa thead').onclick = e => { const c = e.target.dataset.c; if (!c) return; ST.ordenMa = { col: c, dir: ST.ordenMa.col === c ? -ST.ordenMa.dir : 1 }; pintarMaestro(); };
+  $('#tMa tbody').onclick = e => { if (e.target.dataset.ed) editorSku(e.target.dataset.ed); };
+  $('#btnMaCsv').onclick = () => bajarCsv('maestro-sku.csv', ['SKU', 'Producto', 'Variante', 'Categoria', 'MLA', 'Canal Full', 'Canal Pack', 'Minimo Full', 'Minimo Pack', 'Cobertura dias'],
+    ST.maestro.map(m => [m.sku, m.producto, m.variante, m.categoria, (m.mlas || []).join(','), m.canal_full !== false ? 'Si' : 'No', m.canal_pack !== false ? 'Si' : 'No', m.min_full, m.min_pack, m.cobertura_dias]));
+
+  $('#btnRefresh').onclick = recargar;
+  $('#btnCfg').onclick = modalConfig;
+  $('#modal').onclick = e => { if (e.target.id === 'modal') cerrarModal(); };
+  $('#autor').oninput = e => { ST.autor = e.target.value.trim(); lsSet('stockops_autor', ST.autor); };
+}
+
+async function leerArchivoRec(file) {
+  if (typeof XLSX === 'undefined') return msgEn('#recMsg', 'No se pudo cargar el lector de Excel. Copiá el bloque del Excel y pegalo en el recuadro.', 'err');
+  msgEn('#recMsg', 'Leyendo ' + esc(file.name) + '…', 'info');
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const dep = $('#recDep').value;
+    const res = leerExcelStock(wb, dep);
+    if (!res) return msgEn('#recMsg', 'No encontré columnas de SKU y unidades en ese archivo.', 'err');
+    compararStock(res.pares, dep, `${esc(file.name)} · hoja "${esc(res.hoja)}" · SKU de "${esc(res.colSku)}" y stock de "${esc(res.col)}" · ${num(res.pares.length)} filas.`);
+    msgEn('#recMsg', '');
+  } catch (e) { msgEn('#recMsg', 'Error al leer el archivo: ' + esc(e.message), 'err'); }
+}
+
+async function init() {
+  ST.autor = lsGet('stockops_autor') || '';
+  $('#autor').value = ST.autor;
+  eventos();
+  pintarLineasRemito();
+
+  const cfg = await detectarConfig();
+  if (cfg) {
+    ST.cfg = cfg;
+    try {
+      await sbGet('stock_movimientos?select=id&limit=1');
+      ST.modo = 'sb';
+      $('#dotConn').className = 'dot on';
+      $('#txtConn').textContent = 'en línea · equipo sincronizado';
+    } catch (e) {
+      ST.modo = 'local';
+      $('#dotConn').className = 'dot off';
+      $('#txtConn').textContent = 'faltan las tablas en Supabase';
+      toast('Conecté a Supabase pero no encuentro las tablas. Corré stock-ops-schema.sql.', 'err');
+    }
+  } else {
+    ST.modo = 'local';
+    $('#dotConn').className = 'dot mid';
+    $('#txtConn').textContent = 'modo local (solo esta compu)';
+  }
+  await recargar();
+  setInterval(async () => { if (ST.modo === 'sb' && !document.hidden) await recargar(); }, 45000);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
