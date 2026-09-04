@@ -485,7 +485,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
       <span class="pill"><i class="dot" id="dotConn2"></i><span id="txtConn2"></span></span>
       <span class="muted2" id="cfgProyecto"></span>
       <div class="grow"></div>
-      <button class="btn sm" id="btnCfgConn">Cambiar Supabase</button>
+      <button class="btn sm" id="btnCfgConn">Cambiar conexión</button>
     </div>
   </div>
 
@@ -507,7 +507,15 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
    App de control de stock multi-deposito para la cuenta de ML.
    Depositos: FULL (Mercado Libre Full) · PACK (Envio Pack: Colecta
    y Flex comparten stock) · PROPIO · TR_FULL / TR_PACK (en camino)
+
+   Los datos viven en Cloudflare D1 y se hablan con el Worker
+   stock-ops (ver stock-worker.js). Sin Worker configurado la app
+   funciona igual, pero solo en esta computadora.
    ========================================================== */
+
+/* Si tu Worker ya esta publicado, poné la URL acá y el equipo no
+   tiene que configurar nada (el token se pide una sola vez). */
+const API_DEFAULT = '';
 
 const DEPS = {
   FULL:   { nom: 'Full',            corto: 'Full',     color: 'var(--full)' },
@@ -519,10 +527,10 @@ const DEPS = {
 const TIPOS = ['venta','cancelacion','devolucion','ingreso','ajuste','salida','envio','recepcion','traslado'];
 
 const ST = {
-  cfg: { url: '', key: '' },
-  modo: 'local',          // 'sb' | 'local'
+  cfg: { api: '', token: '' },
+  modo: 'local',          // 'api' | 'local'
   autor: '',
-  pan: [],                // panorama por SKU
+  pan: [],
   maestro: [],
   movs: [],
   remitos: [],
@@ -531,7 +539,6 @@ const ST = {
   ordenMa: { col: 'sku', dir: 1 },
   lineasRemito: [],
   recPend: null,
-  // v2
   cfgApp: {
     umbrales: { FULL: 10, PACK: 10, PROPIO: 0 },
     alertas: { activas: true, hora: 9, solo_con_ventas: false, incluir_en_camino: true },
@@ -580,49 +587,31 @@ function numAR(v) {
 }
 
 /* ==========================================================
-   CONEXION
+   CONEXION CON EL WORKER
    ========================================================== */
-async function detectarConfig() {
-  const guardada = lsGet('stockops_cfg');
-  if (guardada) { try { const c = JSON.parse(guardada); if (c.url && c.key) return c; } catch (e) {} }
-  // misma tecnica que el resto de las apps del repo: leer la config de un HTML hermano
-  const hermanos = ['catalogo-salud.html', 'flex-ops.html', 'ganga-control.html', 'clevel-dashboard-ml.html', 'plan-full.html'];
-  for (const h of hermanos) {
-    try {
-      const r = await fetch(h, { cache: 'no-store' });
-      if (!r.ok) continue;
-      const t = await r.text();
-      const url = (t.match(/https:\/\/[a-z0-9]{15,25}\.supabase\.co/) || [])[0];
-      const key = (t.match(/eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/) || [])[0];
-      if (url && key) return { url, key };
-    } catch (e) {}
-  }
-  return null;
+function cargarConfigConexion() {
+  try {
+    const g = JSON.parse(lsGet('stockops_api') || 'null');
+    if (g && g.api) return { api: String(g.api).replace(/\/+$/, ''), token: g.token || '' };
+  } catch (e) {}
+  return { api: API_DEFAULT.replace(/\/+$/, ''), token: '' };
 }
 
-function sbHeaders(extra = {}) {
-  return { apikey: ST.cfg.key, Authorization: 'Bearer ' + ST.cfg.key, 'Content-Type': 'application/json', ...extra };
-}
-async function sbGet(path) {
-  const r = await fetch(`${ST.cfg.url}/rest/v1/${path}`, { headers: sbHeaders() });
-  if (!r.ok) throw new Error(`GET ${path.split('?')[0]} → ${r.status}`);
+async function api(ruta, opciones = {}) {
+  const r = await fetch(ST.cfg.api + ruta, {
+    ...opciones,
+    headers: { 'Content-Type': 'application/json', 'x-stock-token': ST.cfg.token, ...(opciones.headers || {}) },
+  });
+  if (!r.ok) {
+    let d = '';
+    try { d = (await r.json()).error || ''; } catch (e) {}
+    throw new Error(`${ruta} → ${r.status}${d ? ' · ' + d : ''}`);
+  }
   return r.json();
 }
-async function sbPost(tabla, filas, prefer = 'return=minimal') {
-  const r = await fetch(`${ST.cfg.url}/rest/v1/${tabla}`, { method: 'POST', headers: sbHeaders({ Prefer: prefer }), body: JSON.stringify(filas) });
-  if (!r.ok) throw new Error(`POST ${tabla} → ${r.status} ${(await r.text()).slice(0, 160)}`);
-  return prefer.includes('representation') ? r.json() : null;
-}
-async function sbPatch(path, obj) {
-  const r = await fetch(`${ST.cfg.url}/rest/v1/${path}`, { method: 'PATCH', headers: sbHeaders({ Prefer: 'return=minimal' }), body: JSON.stringify(obj) });
-  if (!r.ok) throw new Error(`PATCH ${path.split('?')[0]} → ${r.status}`);
-}
-async function sbDelete(path) {
-  const r = await fetch(`${ST.cfg.url}/rest/v1/${path}`, { method: 'DELETE', headers: sbHeaders() });
-  if (!r.ok) throw new Error(`DELETE → ${r.status}`);
-}
+const apiPost = (ruta, cuerpo) => api(ruta, { method: 'POST', body: JSON.stringify(cuerpo) });
 
-/* ---------- backend local (sin Supabase) ---------- */
+/* ---------- backend local (sin Worker) ---------- */
 const LOCAL = {
   get(k, def) { try { return JSON.parse(lsGet('stockops_' + k) || 'null') ?? def; } catch (e) { return def; } },
   set(k, v) { lsSet('stockops_' + k, JSON.stringify(v)); },
@@ -632,20 +621,44 @@ const LOCAL = {
    CAPA DE DATOS
    ========================================================== */
 const DB = {
-  async maestro() {
-    if (ST.modo === 'sb') return await sbGet('stock_maestro?select=*&order=sku&limit=20000');
-    return LOCAL.get('maestro', []);
+  /* Una sola llamada trae todo lo que la app necesita */
+  async estado() {
+    if (ST.modo === 'api') {
+      const e = await api('/estado');
+      return {
+        panorama: (e.panorama || []).map(p => ({ ...p, mlas: p.mlas || [] })),
+        maestro: e.maestro || [],
+        movimientos: e.movimientos || [],
+        remitos: e.remitos || [],
+        agenda: e.agenda || [],
+        historial: e.historial || [],
+        aurora: e.aurora || [],
+        config: { ...ST.cfgApp, ...(e.config || {}) },
+        sync: e.sync || null,
+      };
+    }
+    return estadoLocal();
   },
+
+  async agregarMovs(filas) {
+    if (!filas.length) return 0;
+    const base = filas.map(f => ({ fecha: f.fecha || hoy(), origen: 'app', autor: ST.autor || 'equipo', ...f }));
+    if (ST.modo === 'api') {
+      for (let i = 0; i < base.length; i += 400) await apiPost('/movimientos', base.slice(i, i + 400));
+    } else {
+      const m = LOCAL.get('movs', []);
+      let id = LOCAL.get('seq', 1);
+      const refs = new Set(m.map(x => x.ref).filter(Boolean));
+      base.forEach(f => { if (f.ref && refs.has(f.ref)) return; m.push({ ...f, id: id++ }); if (f.ref) refs.add(f.ref); });
+      LOCAL.set('seq', id); LOCAL.set('movs', m);
+    }
+    return base.length;
+  },
+
   async guardarMaestro(filas) {
     if (!filas.length) return;
-    if (ST.modo === 'sb') {
-      for (let i = 0; i < filas.length; i += 300) {
-        const lote = filas.slice(i, i + 300).map(f => ({ ...f, actualizado: hoy() }));
-        const r = await fetch(`${ST.cfg.url}/rest/v1/stock_maestro?on_conflict=sku`, {
-          method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(lote),
-        });
-        if (!r.ok) throw new Error(`maestro → ${r.status} ${(await r.text()).slice(0, 160)}`);
-      }
+    if (ST.modo === 'api') {
+      for (let i = 0; i < filas.length; i += 300) await apiPost('/maestro', filas.slice(i, i + 300));
     } else {
       const m = LOCAL.get('maestro', []);
       for (const f of filas) {
@@ -656,99 +669,24 @@ const DB = {
     }
   },
   async borrarMaestro(sku) {
-    if (ST.modo === 'sb') await sbDelete(`stock_maestro?sku=eq.${encodeURIComponent(sku)}`);
+    if (ST.modo === 'api') await api(`/maestro?sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
     else LOCAL.set('maestro', LOCAL.get('maestro', []).filter(x => x.sku !== sku));
   },
 
-  /* Panorama: en Supabase lo agrega la vista; en local se calcula acá */
-  async panorama() {
-    if (ST.modo === 'sb') {
-      try { return await sbGet('v_stock_panorama?select=*&limit=20000'); }
-      catch (e) { /* la vista puede no existir todavía */ }
-      const [ma, sal] = await Promise.all([this.maestro(), sbGet('v_stock_saldos?select=*&limit=20000').catch(() => [])]);
-      return unir(ma, sal, []);
-    }
-    return calcPanoramaLocal();
-  },
-
-  async movimientos({ limite = 1500 } = {}) {
-    if (ST.modo === 'sb') return await sbGet(`stock_movimientos?select=*&order=id.desc&limit=${limite}`);
-    return LOCAL.get('movs', []).slice().sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, limite);
+  async guardarRemito(r) {
+    if (ST.modo === 'api') { await apiPost('/remitos', r); return; }
+    const l = LOCAL.get('remitos', []);
+    const i = l.findIndex(x => x.id === r.id);
+    if (i >= 0) l[i] = { ...l[i], ...r }; else l.push(r);
+    LOCAL.set('remitos', l);
   },
   async movsDeRemito(remito) {
-    if (ST.modo === 'sb') return await sbGet(`stock_movimientos?select=*&remito=eq.${encodeURIComponent(remito)}`);
+    if (ST.modo === 'api') return ST.movs.filter(m => m.remito === remito);
     return LOCAL.get('movs', []).filter(m => m.remito === remito);
   },
-  async agregarMovs(filas) {
-    if (!filas.length) return 0;
-    const base = filas.map(f => ({ fecha: f.fecha || hoy(), origen: 'app', autor: ST.autor || 'equipo', ...f }));
-    if (ST.modo === 'sb') {
-      for (let i = 0; i < base.length; i += 400) await sbPost('stock_movimientos', base.slice(i, i + 400));
-    } else {
-      const m = LOCAL.get('movs', []);
-      let id = LOCAL.get('seq', 1);
-      base.forEach(f => { m.push({ ...f, id: id++ }); });
-      LOCAL.set('seq', id); LOCAL.set('movs', m);
-    }
-    return base.length;
-  },
 
-  async remitos() {
-    if (ST.modo === 'sb') return await sbGet('stock_remitos?select=*&order=fecha_envio.desc&limit=500');
-    return LOCAL.get('remitos', []).slice().sort((a, b) => String(b.fecha_envio).localeCompare(String(a.fecha_envio)));
-  },
-  async guardarRemito(r) {
-    if (ST.modo === 'sb') {
-      const res = await fetch(`${ST.cfg.url}/rest/v1/stock_remitos?on_conflict=id`, {
-        method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify([r]),
-      });
-      if (!res.ok) throw new Error(`remito → ${res.status}`);
-    } else {
-      const l = LOCAL.get('remitos', []);
-      const i = l.findIndex(x => x.id === r.id);
-      if (i >= 0) l[i] = { ...l[i], ...r }; else l.push(r);
-      LOCAL.set('remitos', l);
-    }
-  },
-  async estadoSync() {
-    if (ST.modo !== 'sb') return null;
-    try { const r = await sbGet('stock_sync_estado?id=eq.ml&select=*'); return r[0] || null; } catch (e) { return null; }
-  },
-
-  /* ---------- v2: configuracion ---------- */
-  async config() {
-    const base = { umbrales: { FULL: 10, PACK: 10, PROPIO: 0 }, alertas: { activas: true, hora: 9, solo_con_ventas: false, incluir_en_camino: true }, mails: [] };
-    if (ST.modo === 'sb') {
-      try {
-        const filas = await sbGet('stock_config?select=*');
-        const out = { ...base };
-        for (const f of filas) out[f.clave] = f.valor;
-        return out;
-      } catch (e) { return base; }
-    }
-    return { ...base, ...LOCAL.get('config', {}) };
-  },
-  async guardarConfig(cfg) {
-    if (ST.modo === 'sb') {
-      const filas = Object.entries(cfg).map(([clave, valor]) => ({ clave, valor, actualizado: hoy() }));
-      const r = await fetch(`${ST.cfg.url}/rest/v1/stock_config?on_conflict=clave`, {
-        method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(filas),
-      });
-      if (!r.ok) throw new Error(`config → ${r.status}`);
-    } else LOCAL.set('config', cfg);
-  },
-
-  /* ---------- v2: agenda de envios ---------- */
-  async agenda() {
-    if (ST.modo === 'sb') return await sbGet('stock_agenda?select=*&order=fecha&limit=2000');
-    return LOCAL.get('agenda', []);
-  },
   async guardarAgenda(row) {
-    if (ST.modo === 'sb') {
-      if (row.id) { await sbPatch(`stock_agenda?id=eq.${row.id}`, row); return row.id; }
-      const r = await sbPost('stock_agenda', [row], 'return=representation');
-      return r?.[0]?.id;
-    }
+    if (ST.modo === 'api') { const r = await apiPost('/agenda', row); return r.id; }
     const l = LOCAL.get('agenda', []);
     if (row.id) { const i = l.findIndex(x => x.id === row.id); if (i >= 0) l[i] = { ...l[i], ...row }; }
     else { row.id = LOCAL.get('agSeq', 1); LOCAL.set('agSeq', row.id + 1); l.push(row); }
@@ -756,28 +694,15 @@ const DB = {
     return row.id;
   },
   async borrarAgenda(id) {
-    if (ST.modo === 'sb') await sbDelete(`stock_agenda?id=eq.${id}`);
+    if (ST.modo === 'api') await api(`/agenda?id=${id}`, { method: 'DELETE' });
     else LOCAL.set('agenda', LOCAL.get('agenda', []).filter(x => x.id !== id));
   },
 
-  /* ---------- v2: historial de envios (backup, no toca el stock) ---------- */
-  async historial() {
-    if (ST.modo === 'sb') return await sbGet('stock_envios_hist?select=*&order=fecha.desc&limit=20000');
-    return LOCAL.get('hist', []);
-  },
   async guardarHistorial(filas) {
     if (!filas.length) return 0;
-    if (ST.modo === 'sb') {
-      let n = 0;
-      for (let i = 0; i < filas.length; i += 500) {
-        const lote = filas.slice(i, i + 500);
-        const r = await fetch(`${ST.cfg.url}/rest/v1/stock_envios_hist?on_conflict=fecha,sku,destino`, {
-          method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(lote),
-        });
-        if (!r.ok) throw new Error(`historial → ${r.status} ${(await r.text()).slice(0, 140)}`);
-        n += lote.length;
-      }
-      return n;
+    if (ST.modo === 'api') {
+      for (let i = 0; i < filas.length; i += 400) await apiPost('/historial', filas.slice(i, i + 400));
+      return filas.length;
     }
     const l = LOCAL.get('hist', []);
     const clave = f => `${f.fecha}|${f.sku}|${f.destino}`;
@@ -787,59 +712,35 @@ const DB = {
     return filas.length;
   },
 
-  async aurora() {
-    if (ST.modo === 'sb') { try { return await sbGet('stock_aurora?select=*&limit=20000'); } catch (e) { return []; } }
-    return LOCAL.get('aurora', []);
+  async guardarConfig(cfg) {
+    if (ST.modo === 'api') await apiPost('/config', cfg);
+    else LOCAL.set('config', cfg);
   },
 
   async registrarAlertas(filas) {
-    if (!filas.length || ST.modo !== 'sb') return;
-    try { await sbPost('stock_alertas', filas); } catch (e) {}
+    if (!filas.length || ST.modo !== 'api') return;
+    try { await apiPost('/alertas', filas); } catch (e) {}
   },
 };
 
-/* ---------- umbrales efectivos ---------- */
-function umbralDe(r, dep) {
-  const u = ST.cfgApp.umbrales || {};
-  if (dep === 'FULL') return r.min_full > 0 ? r.min_full : (u.FULL || 0);
-  if (dep === 'PACK') return r.min_pack > 0 ? r.min_pack : (u.PACK || 0);
-  return u.PROPIO || 0;
-}
-function dispDe(r, dep) {
-  const conCamino = ST.cfgApp.alertas?.incluir_en_camino !== false;
-  if (dep === 'FULL') return r.full_u + (conCamino ? r.tr_full_u : 0);
-  if (dep === 'PACK') return r.pack_u + (conCamino ? r.tr_pack_u : 0);
-  return r.propio_u;
-}
-/* SKU por debajo del minimo, listo para la pantalla de Alertas y para el mail */
-function alertasDe(filas) {
-  const soloVenta = !!ST.cfgApp.alertas?.solo_con_ventas;
-  const out = [];
-  for (const r of filas) {
-    if (r.activo === false) continue;
-    for (const dep of ['FULL', 'PACK']) {
-      if (dep === 'FULL' && !r.canal_full) continue;
-      if (dep === 'PACK' && !r.canal_pack) continue;
-      const umb = umbralDe(r, dep);
-      if (umb <= 0) continue;
-      const disp = dispDe(r, dep);
-      if (disp >= umb) continue;
-      const vd = dep === 'FULL' ? r.u30_full / 30 : r.u30_pack / 30;
-      if (soloVenta && !(vd > 0)) continue;
-      out.push({
-        sku: r.sku, producto: r.producto, deposito: dep, unidades: disp, umbral: umb,
-        faltan: umb - disp, u30: dep === 'FULL' ? r.u30_full : r.u30_pack,
-        dias: vd > 0 ? disp / vd : null, propio: r.propio_u,
-        critico: disp <= 0,
-      });
-    }
-  }
-  return out.sort((a, b) => (a.critico === b.critico ? b.u30 - a.u30 : a.critico ? -1 : 1));
+/* ---------- estado en modo local ---------- */
+function estadoLocal() {
+  const maestro = LOCAL.get('maestro', []);
+  const movs = LOCAL.get('movs', []).slice().sort((a, b) => (b.id || 0) - (a.id || 0));
+  return {
+    panorama: calcPanoramaLocal(maestro, movs),
+    maestro,
+    movimientos: movs.slice(0, 1500),
+    remitos: LOCAL.get('remitos', []).slice().sort((a, b) => String(b.fecha_envio).localeCompare(String(a.fecha_envio))),
+    agenda: LOCAL.get('agenda', []),
+    historial: LOCAL.get('hist', []),
+    aurora: LOCAL.get('aurora', []),
+    config: { ...ST.cfgApp, ...LOCAL.get('config', {}) },
+    sync: null,
+  };
 }
 
-function calcPanoramaLocal() {
-  const ma = LOCAL.get('maestro', []);
-  const movs = LOCAL.get('movs', []);
+function calcPanoramaLocal(maestro, movs) {
   const idx = new Map();
   const t30 = Date.now() - 30 * 864e5, t7 = Date.now() - 7 * 864e5;
   const tocar = sku => {
@@ -857,19 +758,15 @@ function calcPanoramaLocal() {
       if (t >= t7) r.u7 += u;
     }
   }
-  ma.forEach(m => tocar(m.sku));
-  return unir(ma, Array.from(idx.values()), []);
+  maestro.forEach(m => tocar(m.sku));
+  return unir(maestro, Array.from(idx.values()));
 }
 
 function unir(maestro, saldos) {
   const mm = new Map(maestro.map(m => [m.sku, m]));
   const out = [];
   const vistos = new Set();
-  for (const s of saldos) {
-    const m = mm.get(s.sku) || {};
-    vistos.add(s.sku);
-    out.push(fila(s.sku, m, s));
-  }
+  for (const s of saldos) { vistos.add(s.sku); out.push(fila(s.sku, mm.get(s.sku) || {}, s)); }
   for (const m of maestro) if (!vistos.has(m.sku)) out.push(fila(m.sku, m, {}));
   return out;
 }
@@ -885,6 +782,44 @@ function fila(sku, m, s) {
     u7: s.u7 || 0, u30: s.u30 || 0, u30_full: s.u30_full || 0, u30_pack: s.u30_pack || 0,
     ultimo_mov: s.ultimo_mov || null,
   };
+}
+
+/* ---------- umbrales efectivos ---------- */
+function umbralDe(r, dep) {
+  const u = ST.cfgApp.umbrales || {};
+  if (dep === 'FULL') return r.min_full > 0 ? r.min_full : (u.FULL || 0);
+  if (dep === 'PACK') return r.min_pack > 0 ? r.min_pack : (u.PACK || 0);
+  return u.PROPIO || 0;
+}
+function dispDe(r, dep) {
+  const conCamino = ST.cfgApp.alertas?.incluir_en_camino !== false;
+  if (dep === 'FULL') return r.full_u + (conCamino ? r.tr_full_u : 0);
+  if (dep === 'PACK') return r.pack_u + (conCamino ? r.tr_pack_u : 0);
+  return r.propio_u;
+}
+/* SKU por debajo del minimo, para la pantalla de Alertas y para el aviso */
+function alertasDe(filas) {
+  const soloVenta = !!ST.cfgApp.alertas?.solo_con_ventas;
+  const out = [];
+  for (const r of filas) {
+    if (r.activo === false) continue;
+    for (const dep of ['FULL', 'PACK']) {
+      if (dep === 'FULL' && !r.canal_full) continue;
+      if (dep === 'PACK' && !r.canal_pack) continue;
+      const umb = umbralDe(r, dep);
+      if (umb <= 0) continue;
+      const disp = dispDe(r, dep);
+      if (disp >= umb) continue;
+      const vd = dep === 'FULL' ? r.u30_full / 30 : r.u30_pack / 30;
+      if (soloVenta && !(vd > 0)) continue;
+      out.push({
+        sku: r.sku, producto: r.producto, deposito: dep, unidades: disp, umbral: umb,
+        faltan: umb - disp, u30: dep === 'FULL' ? r.u30_full : r.u30_pack,
+        dias: vd > 0 ? disp / vd : null, propio: r.propio_u, critico: disp <= 0,
+      });
+    }
+  }
+  return out.sort((a, b) => (a.critico === b.critico ? b.u30 - a.u30 : a.critico ? -1 : 1));
 }
 
 /* Derivados por fila: cobertura y estado */
@@ -1533,22 +1468,47 @@ function bajarCsv(nombre, heads, filas) {
 
 function modalConfig() {
   abrirModal(`<h3>Conexión</h3>
-    <p class="muted">La app guarda todo en Supabase para que el equipo vea lo mismo desde cualquier computadora.
-    Si la dejás vacía, funciona en esta computadora sola.</p>
+    <p class="muted">La app guarda todo en tu base de Cloudflare (D1) a través del Worker <b>stock-ops</b>.
+    Poné la dirección del Worker y la clave, y todo el equipo ve lo mismo desde cualquier computadora.
+    Si lo dejás vacío, funciona en esta computadora sola.</p>
     <div class="grid2">
-      <label class="fld">URL de Supabase<input type="text" id="kUrl" value="${esc(ST.cfg.url)}" placeholder="https://xxxx.supabase.co"></label>
-      <label class="fld">Anon key<input type="text" id="kKey" value="${esc(ST.cfg.key ? ST.cfg.key.slice(0, 24) + '…' : '')}" placeholder="eyJ…"></label>
+      <label class="fld">Dirección del Worker
+        <input type="text" id="kApi" value="${esc(ST.cfg.api)}" placeholder="https://stock-ops.tucuenta.workers.dev">
+      </label>
+      <label class="fld">Clave (APP_TOKEN)
+        <input type="password" id="kToken" value="${esc(ST.cfg.token)}" placeholder="la que cargaste con wrangler secret">
+      </label>
     </div>
-    <div class="hint">Estado: ${ST.modo === 'sb' ? 'conectada a Supabase' : 'modo local (solo esta computadora)'}</div>
-    <div class="bar" style="margin-top:14px"><button class="btn" id="cfgBorrar">Borrar config</button>
+    <div class="hint">Estado: ${ST.modo === 'api' ? 'conectada al Worker' : 'modo local (solo esta computadora)'}</div>
+    <div id="cfgConnMsg"></div>
+    <div class="bar" style="margin-top:14px">
+      <button class="btn" id="cfgBorrar">Borrar y usar modo local</button>
+      <button class="btn" id="cfgProbar">Probar</button>
       <div class="grow"></div><button class="btn" onclick="cerrarModal()">Cerrar</button>
-      <button class="btn pri" id="cfgOk">Guardar y reconectar</button></div>`);
+      <button class="btn pri" id="cfgOk">Guardar y conectar</button></div>`);
+
+  const leer = () => ({ api: $('#kApi').value.trim().replace(/\/+$/, ''), token: $('#kToken').value.trim() });
+
+  $('#cfgProbar').onclick = async () => {
+    const c = leer();
+    if (!c.api) return msgEn('#cfgConnMsg', 'Falta la dirección del Worker.', 'err');
+    msgEn('#cfgConnMsg', 'Probando…', 'info');
+    try {
+      const salud = await fetch(c.api + '/health').then(r => r.json());
+      if (!salud.ok) throw new Error('el Worker no respondió bien');
+      const r = await fetch(c.api + '/estado', { headers: { 'x-stock-token': c.token } });
+      if (r.status === 401) return msgEn('#cfgConnMsg', 'El Worker responde, pero la clave no es correcta.', 'err');
+      if (!r.ok) return msgEn('#cfgConnMsg', 'El Worker respondió ' + r.status + '. ¿Corriste el stock-ops-d1.sql?', 'err');
+      const e = await r.json();
+      msgEn('#cfgConnMsg', `Todo bien: ${num((e.panorama || []).length)} SKU y ${num((e.movimientos || []).length)} movimientos.`, 'ok');
+    } catch (err) { msgEn('#cfgConnMsg', 'No pude conectar: ' + esc(err.message), 'err'); }
+  };
   $('#cfgOk').onclick = () => {
-    const url = $('#kUrl').value.trim(), key = $('#kKey').value.trim();
-    if (url && key && !key.includes('…')) lsSet('stockops_cfg', JSON.stringify({ url, key }));
+    const c = leer();
+    lsSet('stockops_api', JSON.stringify(c));
     location.reload();
   };
-  $('#cfgBorrar').onclick = () => { lsSet('stockops_cfg', ''); location.reload(); };
+  $('#cfgBorrar').onclick = () => { lsSet('stockops_api', ''); location.reload(); };
 }
 
 /* ==========================================================
@@ -1556,18 +1516,18 @@ function modalConfig() {
    ========================================================== */
 async function recargar() {
   try {
-    const [cfg, pan, ma, movs, rem, sync, ag, hist] = await Promise.all([
-      DB.config(), DB.panorama(), DB.maestro(), DB.movimientos(), DB.remitos(), DB.estadoSync(),
-      DB.agenda().catch(() => []), DB.historial().catch(() => []),
-    ]);
-    ST.aurora = await DB.aurora().catch(() => []);
-    ST.cfgApp = cfg; ST.pan = pan; ST.maestro = ma; ST.movs = movs; ST.remitos = rem; ST.sync = sync;
-    ST.agenda = ag || []; ST.hist = hist || [];
+    const e = await DB.estado();
+    ST.cfgApp = e.config; ST.pan = e.panorama; ST.maestro = e.maestro; ST.movs = e.movimientos;
+    ST.remitos = e.remitos; ST.agenda = e.agenda; ST.hist = e.historial; ST.aurora = e.aurora; ST.sync = e.sync;
     $('#dlSku').innerHTML = ST.pan.slice(0, 3000).map(r => `<option value="${esc(r.sku)}">${esc((r.producto || '').slice(0, 40))}</option>`).join('');
     pintarPanorama(); pintarMovs(); pintarRemitos(); pintarMaestro(); pintarUltimos(); pintarSync();
     pintarAlertas(); pintarCalendario(); pintarHistorial(); pintarConfig();
   } catch (e) {
     toast('Error al leer: ' + e.message, 'err');
+    if (String(e.message).includes('401')) {
+      $('#dotConn').className = 'dot off';
+      $('#txtConn').textContent = 'la clave no es correcta';
+    }
   }
 }
 
@@ -1681,27 +1641,38 @@ async function init() {
   eventos();
   pintarLineasRemito();
 
-  const cfg = await detectarConfig();
-  if (cfg) {
-    ST.cfg = cfg;
+  ST.cfg = cargarConfigConexion();
+  if (ST.cfg.api) {
     try {
-      await sbGet('stock_movimientos?select=id&limit=1');
-      ST.modo = 'sb';
-      $('#dotConn').className = 'dot on';
-      $('#txtConn').textContent = 'en línea · equipo sincronizado';
+      const r = await fetch(ST.cfg.api + '/estado', { headers: { 'x-stock-token': ST.cfg.token } });
+      if (r.status === 401) {
+        ST.modo = 'local';
+        $('#dotConn').className = 'dot off';
+        $('#txtConn').textContent = 'la clave no es correcta';
+        toast('El Worker responde pero la clave no coincide. Revisá Configuración.', 'err');
+      } else if (r.ok) {
+        ST.modo = 'api';
+        $('#dotConn').className = 'dot on';
+        $('#txtConn').textContent = 'en línea · equipo sincronizado';
+      } else {
+        ST.modo = 'local';
+        $('#dotConn').className = 'dot off';
+        $('#txtConn').textContent = 'el Worker respondió ' + r.status;
+        toast('El Worker respondió ' + r.status + '. ¿Cargaste el esquema en D1?', 'err');
+      }
     } catch (e) {
       ST.modo = 'local';
       $('#dotConn').className = 'dot off';
-      $('#txtConn').textContent = 'faltan las tablas en Supabase';
-      toast('Conecté a Supabase pero no encuentro las tablas. Corré stock-ops-schema.sql.', 'err');
+      $('#txtConn').textContent = 'no llego al Worker';
     }
   } else {
     ST.modo = 'local';
     $('#dotConn').className = 'dot mid';
     $('#txtConn').textContent = 'modo local (solo esta compu)';
   }
+
   await recargar();
-  setInterval(async () => { if (ST.modo === 'sb' && !document.hidden) await recargar(); }, 45000);
+  setInterval(async () => { if (ST.modo === 'api' && !document.hidden) await recargar(); }, 45000);
 }
 
 document.addEventListener('DOMContentLoaded', init);
@@ -2061,7 +2032,7 @@ function pintarConfig() {
   pintarAuroraCfg();
   $('#dotConn2').className = $('#dotConn').className;
   $('#txtConn2').textContent = $('#txtConn').textContent;
-  $('#cfgProyecto').textContent = ST.modo === 'sb' ? ST.cfg.url.replace('https://', '') : 'los datos viven solo en esta computadora';
+  $('#cfgProyecto').textContent = ST.modo === 'api' ? ST.cfg.api.replace(/^https?:\/\//, '') : 'los datos viven solo en esta computadora';
 }
 
 function pintarMails() {
@@ -2173,11 +2144,12 @@ function cfgAurora() {
 /* El sincronizador que se pega en la consola de Aurora */
 function snippetAurora() {
   const a = cfgAurora();
-  const sb = ST.cfg.url, key = ST.cfg.key;
+  const API = ST.cfg.api, TOKEN = ST.cfg.token;
   return `/* Stock Ops · trae el stock de Aurora y lo deja en la app. Pegar en la consola de ${a.url} */
 (async () => {
   const ESTADOS = ${JSON.stringify(a.estados)};
-  const SB = ${JSON.stringify(sb)}, KEY = ${JSON.stringify(key)};
+  const API = ${JSON.stringify(API)}, TOKEN = ${JSON.stringify(TOKEN)};
+  if (!API) { alert('Primero configurá el Worker en Stock Ops (Configuración).'); return; }
   const q = o => encodeURIComponent(JSON.stringify({ "0": { json: o, meta: { values: { search: ["undefined"], bannerId: ["undefined"], useSafetyStock: ["undefined"], productState: ["undefined"] }, v: 1 } } }));
   const pedir = async (i) => {
     const r = await fetch(\`/api/trpc/articles.all?batch=1&input=\${q({ pageIndex: i, pageSize: 200, search: null, bannerId: null, articleCategoryIds: [], useSafetyStock: null, productState: null, sort: [] })}\`, { credentials: 'include' });
@@ -2188,26 +2160,22 @@ function snippetAurora() {
   const p0 = await pedir(0);
   let arts = p0.content.slice();
   for (let i = 1; i < p0.totalPages; i++) { arts = arts.concat((await pedir(i)).content); console.log('  pagina ' + (i + 1) + '/' + p0.totalPages); }
-  const filas = arts.filter(a => a.sku).map(a => {
+  const articulos = arts.filter(a => a.sku).map(a => {
     const det = {}; (a.stock || []).forEach(s => det[s.state] = (det[s.state] || 0) + (s.quantity || 0));
     return { sku: String(a.sku).trim(), producto: a.name || null,
-             unidades: ESTADOS.reduce((t, e) => t + (det[e] || 0), 0), detalle: det, actualizado: new Date().toISOString() };
+             unidades: ESTADOS.reduce((t, e) => t + (det[e] || 0), 0), detalle: det };
   });
-  for (let i = 0; i < filas.length; i += 500) {
-    const r = await fetch(SB + '/rest/v1/stock_aurora?on_conflict=sku', {
+  for (let i = 0; i < articulos.length; i += 500) {
+    const r = await fetch(API + '/aurora', {
       method: 'POST',
-      headers: { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(filas.slice(i, i + 500)),
+      headers: { 'Content-Type': 'application/json', 'x-stock-token': TOKEN },
+      body: JSON.stringify({ articulos: articulos.slice(i, i + 500), meta: { url: location.origin, estados: ESTADOS } }),
     });
     if (!r.ok) throw new Error('Al guardar: ' + r.status + ' ' + (await r.text()).slice(0, 120));
   }
-  await fetch(SB + '/rest/v1/stock_config?clave=eq.aurora', {
-    method: 'PATCH', headers: { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-    body: JSON.stringify({ valor: { url: location.origin, estados: ESTADOS, ultimo: new Date().toISOString() }, actualizado: new Date().toISOString() }),
-  });
-  const conStock = filas.filter(f => f.unidades > 0).length;
-  console.log('Stock Ops: listo. ' + filas.length + ' articulos, ' + conStock + ' con stock, ' + filas.reduce((t, f) => t + f.unidades, 0) + ' unidades.');
-  alert('Stock Ops: ' + filas.length + ' articulos leidos de Aurora (' + conStock + ' con stock). Ya podes aplicarlo desde Pegar bases de ML.');
+  const conStock = articulos.filter(f => f.unidades > 0).length;
+  console.log('Stock Ops: listo. ' + articulos.length + ' articulos, ' + conStock + ' con stock, ' + articulos.reduce((t, f) => t + f.unidades, 0) + ' unidades.');
+  alert('Stock Ops: ' + articulos.length + ' articulos leidos de Aurora (' + conStock + ' con stock). Ya podes aplicarlo desde Pegar bases de ML.');
 })();`;
 }
 
@@ -2222,7 +2190,7 @@ function modalAuroraComo() {
       <li>Volvé acá, entrá en <b>Pegar bases de ML</b> y apretá <b>Traer de Aurora</b>: te muestra las diferencias contra el depósito propio y las aplicás.</li>
     </ol>
     <p class="muted2">Corre con tu sesión de Aurora abierta, así que no hay que guardar usuario ni contraseña en ningún lado.
-    Si más adelante conseguís un usuario de servicio o una API key de Aurora, esto mismo lo puede hacer solo un Worker cada hora.</p>
+    Si más adelante conseguís un usuario de servicio o una API key de Aurora, esto mismo lo puede hacer el Worker solo, cada hora.</p>
     <textarea rows="10" id="auroraTxt" readonly>${esc(snippetAurora())}</textarea>
     <div class="bar" style="margin-top:10px">
       <button class="btn" id="btnAuroraCopiar2">Copiar</button>
