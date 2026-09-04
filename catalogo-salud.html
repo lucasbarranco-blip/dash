@@ -134,7 +134,7 @@ button:hover{box-shadow:var(--sh)}button.dark{background:var(--ink);color:#fff;b
   </div>
 
   <div class="toolbar">
-    <input type="search" id="search" placeholder="Buscar MLA o título…">
+    <input type="search" id="search" placeholder="Buscar SKU, MLA o título…">
     <div class="seg" id="sortSeg">
       <button class="on" data-s="score-asc">Peor salud primero</button>
       <button data-s="score-desc">Mejor primero</button>
@@ -314,7 +314,7 @@ function cardHTML(p){const c=p.crit;const est=getEstado(p.mla);
 function filterRows(){
  let rows=DATA.slice();
  if(estadoFilter!=='todas')rows=rows.filter(p=>p.estadoPub===estadoFilter);
- if(q){const s=q.toLowerCase();rows=rows.filter(p=>(p.mla+' '+p.titulo).toLowerCase().includes(s));}
+ if(q){const s=q.toLowerCase();rows=rows.filter(p=>(p.mla+' '+p.titulo+' '+(p.sku||'')).toLowerCase().includes(s));}
  if(filterMode==='crit')rows=rows.filter(p=>p.score<50);
  if(filterMode==='manual')rows=rows.filter(p=>p.pending>0);
  if(filterMode==='notas')rows=rows.filter(p=>getNota(p.mla).trim());
