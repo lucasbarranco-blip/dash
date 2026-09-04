@@ -197,7 +197,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
         <option value="PROPIO">Depósito propio</option>
         <option value="TR_FULL">En tránsito a Full</option><option value="TR_PACK">En tránsito a Pack</option>
       </select>
-      <select id="mOrigen"><option value="">Manual y automático</option><option value="worker">Solo ventas ML</option><option value="app">Solo manual</option><option value="import">Solo reconciliación</option></select>
+      <select id="mOrigen"><option value="">Todos los orígenes</option><option value="worker">Ventas automáticas de ML</option><option value="import">Importado (ventas y bases)</option><option value="app">Cargado a mano</option></select>
       <input type="date" id="mDesde"><input type="date" id="mHasta">
       <div class="grow"></div>
       <span class="muted2" id="mCnt"></span>
@@ -361,19 +361,20 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
     <h3>Pegar bases de ML <small>el stock real de cada depósito, tal como lo exportás</small></h3>
     <p class="muted" style="margin-top:0">
       Abrí el export, seleccioná todo (incluida la fila de títulos), copiá y pegá acá abajo.
-      La app busca sola la columna de SKU y la de stock, compara contra lo que tiene el sistema
-      y deja el ajuste por la diferencia. No hace falta acomodar nada.
+      La app busca sola las columnas que necesita. Con las bases de stock deja el ajuste por la
+      diferencia; con el export de ventas descuenta lo vendido de cada depósito. No hace falta acomodar nada.
     </p>
 
     <div class="bar" style="align-items:flex-end">
-      <label class="fld">Qué base estás pegando
+      <label class="fld">Qué estás pegando
         <select id="recDep">
           <option value="FULL">Stock en Full · Reporte de Planificación de ML</option>
           <option value="PACK">Stock en Envío Pack · export de Envíopack</option>
           <option value="PROPIO">Stock del depósito propio · export del ERP</option>
+          <option value="VENTAS">Ventas de ML · descuenta el stock vendido</option>
         </select>
       </label>
-      <label class="fld">Los SKU que no vengan en la base
+      <label class="fld" id="lblFalt">Los SKU que no vengan en la base
         <select id="recFalt">
           <option value="ignorar">Dejarlos como están</option>
           <option value="cero">Ponerlos en cero</option>
@@ -539,6 +540,7 @@ const ST = {
   ordenMa: { col: 'sku', dir: 1 },
   lineasRemito: [],
   recPend: null,
+  ventasPend: null,
   cfgApp: {
     umbrales: { FULL: 10, PACK: 10, PROPIO: 0 },
     alertas: { activas: true, hora: 9, solo_con_ventas: false, incluir_en_camino: true },
@@ -975,7 +977,9 @@ function pintarMovs() {
   $('#tMov tbody').innerHTML = filas.slice(0, 900).map(m => {
     const u = Number(m.unidades) || 0;
     const col = u >= 0 ? 'var(--ok)' : 'var(--bad)';
-    const org = { worker: '<span class="tag info">ML auto</span>', import: '<span class="tag mut">reconcil.</span>' }[m.origen] || '<span class="tag mut">manual</span>';
+    const org = m.origen === 'worker' ? '<span class="tag info">ML auto</span>'
+      : m.origen === 'import' ? `<span class="tag mut">${m.tipo === 'venta' ? 'ventas' : 'reconcil.'}</span>`
+      : '<span class="tag mut">manual</span>';
     return `<tr><td class="muted">${fechaCorta(m.fecha)}</td><td class="mono">${esc(m.sku)}</td>
       <td>${DEPS[m.deposito]?.corto || m.deposito}</td><td>${esc(m.tipo)}</td>
       <td class="num" style="color:${col}"><b>${u > 0 ? '+' : ''}${num(u)}</b></td>
@@ -1201,6 +1205,11 @@ const BASES = {
     cols: ['cantidad disponible para uso', 'disponible', 'cantidad', 'stock'],
     ayuda: 'Del export del <b>ERP</b> toma <b>Referencia interna</b> como SKU y <b>Cantidad disponible para uso</b> como stock.',
   },
+  VENTAS: {
+    nom: 'export de Ventas de ML',
+    cols: [],
+    ayuda: 'Del export de <b>Ventas</b> de ML toma el <b>#\u00a0de venta</b>, el <b>SKU</b>, las <b>unidades</b> y la <b>forma de entrega</b>: lo de Full descuenta de Full y lo de Flex y Colecta descuenta de Env\u00edo Pack. En los paquetes de varios productos arrastra solo la forma de entrega y la fecha, y saltea las canceladas. Si peg\u00e1s dos veces el mismo per\u00edodo no descuenta doble.',
+  },
 };
 
 /* Detecta encabezado, columna de SKU y columna de stock sobre una matriz de filas */
@@ -1255,6 +1264,12 @@ function pegarBase() {
   const txt = $('#recTxt').value;
   if (!txt.trim()) return msgEn('#recMsg', 'Pegá primero la base.', 'err');
   const filas = filasDeTexto(txt);
+  if (dep === 'VENTAS') {
+    const v = leerVentas(filas);
+    if (!v) return msgEn('#recMsg', 'No reconocí el export de ventas. Copiá el bloque con la fila de títulos, incluidas las columnas de # de venta y unidades.', 'err');
+    msgEn('#recMsg', '');
+    return previewVentas(v, `${num(v.lineas)} líneas pegadas del export de ventas.`);
+  }
   const r = detectarEnFilas(filas, dep);
   if (r) {
     msgEn('#recMsg', '');
@@ -1271,7 +1286,15 @@ function pegarBase() {
 
 function pintarAyudaBase() {
   const dep = $('#recDep').value;
+  const ventas = dep === 'VENTAS';
   $('#recAyuda').innerHTML = BASES[dep].ayuda;
+  const lbl = $('#lblFalt'); if (lbl) lbl.style.display = ventas ? 'none' : '';
+  const btn = $('#btnRecTxt'); if (btn) btn.textContent = ventas ? 'Leer las ventas' : 'Comparar con el sistema';
+  const ta = $('#recTxt');
+  if (ta) ta.placeholder = ventas
+    ? '# de venta\tFecha de venta\tEstado\tUnidades\tSKU\tForma de entrega\n2000012345\t14 de agosto de 2026\tEntregado\t2\tGH-101\tMercado Envíos Full'
+    : 'Pegá acá el bloque copiado del Excel, con la fila de títulos.';
+  ST.ventasPend = null;
   pintarResumenPegado();
 }
 function pintarResumenPegado() {
@@ -1584,7 +1607,7 @@ function eventos() {
 
   $('#btnRecFile').onclick = () => $('#recFile').click();
   $('#recDrop').onclick = () => $('#recFile').click();
-  $('#recFile').onchange = e => { if (e.target.files[0]) leerArchivoRec(e.target.files[0]); };
+  $('#recFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) leerArchivoRec(f); };
   ['dragover', 'dragenter'].forEach(ev => $('#recDrop').addEventListener(ev, e => { e.preventDefault(); $('#recDrop').style.borderColor = 'var(--acc)'; }));
   $('#recDrop').addEventListener('dragleave', () => $('#recDrop').style.borderColor = '');
   $('#recDrop').addEventListener('drop', e => {
@@ -1599,7 +1622,7 @@ function eventos() {
 
   $('#btnMaImp').onclick = () => $('#maFile').click();
   $('#maFile').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     if (typeof XLSX === 'undefined') return msgEn('#maMsg', 'No se pudo cargar el lector de Excel (sin internet o bloqueado).', 'err');
     const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
     const filas = importarMaestro(wb);
@@ -1628,6 +1651,16 @@ async function leerArchivoRec(file) {
   try {
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
     const dep = $('#recDep').value;
+    if (dep === 'VENTAS') {
+      let mejor = null;
+      for (const n of wb.SheetNames) {
+        const v = leerVentas(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '', raw: true }));
+        if (v && (!mejor || v.filas.length > mejor.filas.length)) { mejor = v; mejor.hoja = n; }
+      }
+      if (!mejor) return msgEn('#recMsg', 'No encontré las columnas del export de ventas en ese archivo.', 'err');
+      msgEn('#recMsg', '');
+      return previewVentas(mejor, `${esc(file.name)} · hoja "${esc(mejor.hoja)}" · ${num(mejor.lineas)} líneas.`);
+    }
     const res = leerExcelStock(wb, dep);
     if (!res) return msgEn('#recMsg', 'No encontré columnas de SKU y unidades en ese archivo.', 'err');
     compararStock(res.pares, dep, `${esc(file.name)} · hoja "${esc(res.hoja)}" · SKU de "${esc(res.colSku)}" y stock de "${esc(res.col)}" · ${num(res.pares.length)} filas.`);
@@ -2101,7 +2134,7 @@ function eventosV2() {
   $('#btnAgNuevo')?.addEventListener('click', () => editorAgenda(null, iso(new Date())));
 
   $('#btnHistImp')?.addEventListener('click', () => $('#histFile').click());
-  $('#histFile')?.addEventListener('change', e => { if (e.target.files[0]) importarHistorico(e.target.files[0]); });
+  $('#histFile')?.addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importarHistorico(f); });
   $('#btnHistCsv')?.addEventListener('click', () => bajarCsv('historial-envios.csv',
     ['Fecha', 'SKU', 'MLA', 'Producto', 'Destino', 'Unidades'],
     ST.hist.map(h => [h.fecha, h.sku, h.mla, h.producto, h.destino, h.unidades])));
@@ -2234,6 +2267,162 @@ function traerDeAurora() {
   pintarAyudaBase();
   compararStock(ST.aurora.map(x => ({ sku: x.sku, u: x.unidades, nombre: x.producto })), 'PROPIO',
     `Aurora WMS · lectura del ${fechaCorta(a.ultimo)} · ${num(ST.aurora.length)} artículos · cuenta ${a.estados.join(' + ')}.`);
+}
+
+/* ==========================================================
+   v4 · IMPORTAR VENTAS DE ML (sin API)
+   Lee el export de Ventas de Mercado Libre y descuenta el stock
+   del deposito que corresponde segun la forma de entrega.
+   Idempotente: una venta + un SKU = un movimiento (ref MLV:...).
+   ========================================================== */
+const MESES_ES = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, setiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
+
+function fechaML(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number' && v > 30000 && v < 60000) return new Date(Date.UTC(1899, 11, 30) + v * 864e5).toISOString();
+  const s = String(v).trim();
+  let m = s.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)(?:\s+de)?\s+(\d{4})/i);   // "14 de agosto de 2026"
+  if (m) {
+    const mes = MESES_ES[m[2].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')];
+    if (mes !== undefined) return new Date(Date.UTC(+m[3], mes, +m[1], 12)).toISOString();
+  }
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);                   // "14/08/2026"
+  if (m) { const a = +m[3] < 100 ? 2000 + +m[3] : +m[3]; return new Date(Date.UTC(a, +m[2] - 1, +m[1], 12)).toISOString(); }
+  const d = new Date(s);
+  return isNaN(d) ? null : d.toISOString();
+}
+
+/* Forma de entrega -> deposito */
+function depositoDeEnvio(txt) {
+  const s = String(txt || '').toLowerCase();
+  if (s.includes('full')) return 'FULL';
+  return 'PACK';   // Flex, Colecta, ML Envios, retiro: todo sale de Envio Pack
+}
+
+/* Lee una matriz de filas (de Excel o de lo pegado) y arma las ventas */
+function leerVentas(filas) {
+  if (!filas || filas.length < 2) return null;
+  let hi = 0, mejor = -1;
+  for (let i = 0; i < Math.min(15, filas.length); i++) {
+    const n = (filas[i] || []).filter(c => String(c).trim()).length;
+    if (n > mejor) { mejor = n; hi = i; }
+  }
+  const heads = (filas[hi] || []).map(h => String(h).toLowerCase().trim());
+  // primera aparicion de cada columna (el export de ML repite encabezados)
+  const b = (...claves) => heads.findIndex(h => h && claves.some(k => h.includes(k)));
+  const cVenta = b('# de venta', 'nº de venta', 'n° de venta', 'numero de venta', 'número de venta', 'venta');
+  const cUnid  = b('unidades');
+  const cSku   = b('sku');
+  const cEnvio = b('forma de entrega', 'tipo de envio', 'tipo de envío', 'metodo de envio', 'método de envío');
+  const cFecha = b('fecha de venta', 'fecha');
+  const cEstado = b('estado');
+  const cTitulo = b('título de', 'titulo de', 'título', 'titulo', 'producto', 'descripción', 'descripcion');
+  const cMla = b('# de publicación', '# de publicacion', 'publicación', 'publicacion');
+  if (cVenta < 0 || cUnid < 0) return null;
+
+  const ventas = new Map();     // clave venta|sku
+  let ultVenta = '', ultEnvio = '', ultFecha = null, ultEstado = '';
+  let lineas = 0, canceladas = 0, sinSku = 0;
+
+  for (let i = hi + 1; i < filas.length; i++) {
+    const f = filas[i] || [];
+    const venta = String(f[cVenta] ?? '').replace(/[^\dA-Za-z]/g, '') || ultVenta;
+    if (!venta) continue;
+    if (venta !== ultVenta) { ultEnvio = ''; ultFecha = null; ultEstado = ''; }
+    ultVenta = venta;
+    // en los paquetes de varios productos solo la primera linea trae envio, fecha y estado
+    const envio = (cEnvio >= 0 ? String(f[cEnvio] ?? '').trim() : '') || ultEnvio;
+    if (envio) ultEnvio = envio;
+    const fecha = (cFecha >= 0 ? fechaML(f[cFecha]) : null) || ultFecha;
+    if (fecha) ultFecha = fecha;
+    const estado = (cEstado >= 0 ? String(f[cEstado] ?? '').trim() : '') || ultEstado;
+    if (estado) ultEstado = estado;
+
+    const u = Math.round(numAR(f[cUnid]));
+    if (!u) continue;
+    lineas++;
+    if (/cancel|devol|reclam/i.test(estado)) { canceladas++; continue; }
+
+    let sku = cSku >= 0 ? String(f[cSku] ?? '').trim() : '';
+    if (!sku) { const mla = cMla >= 0 ? soloDig(f[cMla]) : ''; sku = mla ? 'MLA:' + mla : ''; if (sku) sinSku++; }
+    if (!sku) continue;
+
+    const dep = depositoDeEnvio(ultEnvio);
+    const k = venta + '|' + sku;
+    if (ventas.has(k)) ventas.get(k).unidades += u;
+    else ventas.set(k, {
+      venta, sku, deposito: dep, unidades: u,
+      fecha: ultFecha || hoy(),
+      titulo: cTitulo >= 0 ? String(f[cTitulo] ?? '').trim().slice(0, 60) : '',
+    });
+  }
+  if (!ventas.size) return null;
+  return { filas: Array.from(ventas.values()), lineas, canceladas, sinSku, sinEnvio: !heads.some(h => h.includes('entrega') || h.includes('envio') || h.includes('envío')) };
+}
+
+function previewVentas(res, nota) {
+  ST.ventasPend = res;
+  const f = res.filas;
+  const full = f.filter(x => x.deposito === 'FULL'), pack = f.filter(x => x.deposito === 'PACK');
+  const u = a => a.reduce((t, x) => t + x.unidades, 0);
+  const fechas = f.map(x => String(x.fecha).slice(0, 10)).sort();
+  const enMaestro = new Set(ST.pan.map(r => r.sku));
+  const nuevos = new Set(f.filter(x => !enMaestro.has(x.sku)).map(x => x.sku));
+
+  $('#recPrev').innerHTML = `
+    <div class="msg warn">
+      ${nota ? esc(nota) + '<br>' : ''}
+      <b>${num(new Set(f.map(x => x.venta)).size)} ventas · ${num(u(f))} unidades</b> entre el
+      ${new Date(fechas[0] + 'T12:00:00').toLocaleDateString('es-AR')} y el
+      ${new Date(fechas[fechas.length - 1] + 'T12:00:00').toLocaleDateString('es-AR')}.
+      Salen ${num(u(full))} u de Full y ${num(u(pack))} u de Envío Pack.
+      ${res.canceladas ? `Se saltean ${num(res.canceladas)} líneas canceladas o devueltas.` : ''}
+      ${nuevos.size ? `${num(nuevos.size)} SKU no están en el maestro y se crean.` : ''}
+      ${res.sinEnvio ? '<br><b>Ojo:</b> el archivo no trae la forma de entrega, así que todo se descuenta de Envío Pack.' : ''}
+    </div>
+    <div class="bar">
+      <button class="btn pri" id="btnVentasAplicar">Descontar ${num(f.length)} líneas</button>
+      <button class="btn" id="btnVentasCancel">Descartar</button>
+      <div class="grow"></div><button class="btn sm" id="btnVentasCsv">CSV</button>
+    </div>
+    <div class="tblwrap" style="max-height:46vh"><table><thead><tr><th>Venta</th><th>Fecha</th><th>SKU</th>
+      <th>Producto</th><th>Depósito</th><th class="num">Unidades</th></tr></thead>
+      <tbody>${f.slice(0, 500).map(x => `<tr><td class="mono">${esc(x.venta)}</td>
+        <td class="muted">${new Date(x.fecha).toLocaleDateString('es-AR')}</td>
+        <td class="mono">${esc(x.sku)}${nuevos.has(x.sku) ? ' <span class="tag mut">nuevo</span>' : ''}</td>
+        <td class="muted">${esc(x.titulo)}</td>
+        <td><span class="tag ${x.deposito === 'FULL' ? 'info' : 'warn'}">${DEPS[x.deposito].nom}</span></td>
+        <td class="num">${num(x.unidades)}</td></tr>`).join('')}</tbody></table></div>`;
+
+  $('#btnVentasAplicar').onclick = aplicarVentas;
+  $('#btnVentasCancel').onclick = () => { ST.ventasPend = null; $('#recPrev').innerHTML = ''; };
+  $('#btnVentasCsv').onclick = () => bajarCsv('ventas-a-descontar.csv',
+    ['Venta', 'Fecha', 'SKU', 'Producto', 'Deposito', 'Unidades'],
+    f.map(x => [x.venta, x.fecha, x.sku, x.titulo, x.deposito, x.unidades]));
+}
+
+async function aplicarVentas() {
+  const p = ST.ventasPend; if (!p) return;
+  const movs = p.filas.map(x => ({
+    fecha: x.fecha, sku: x.sku, deposito: x.deposito, tipo: 'venta', unidades: -x.unidades,
+    ref: `MLV:${x.venta}:${x.sku}`,
+    detalle: `Venta ${x.venta}${x.titulo ? ' · ' + x.titulo : ''}`,
+    autor: 'import ventas', origen: 'import',
+  }));
+  try {
+    msgEn('#recMsg', 'Descontando…', 'info');
+    await DB.agregarMovs(movs);
+    const nuevos = p.filas.filter(x => !ST.pan.some(r => r.sku === x.sku));
+    if (nuevos.length) {
+      const vistos = new Map();
+      nuevos.forEach(x => vistos.set(x.sku, { sku: x.sku, producto: x.titulo || null }));
+      await DB.guardarMaestro(Array.from(vistos.values()));
+    }
+    ST.ventasPend = null;
+    msgEn('#recMsg', `Listo: ${num(movs.length)} líneas descontadas. Si volvés a pegar el mismo período no se duplica.`, 'ok');
+    $('#recPrev').innerHTML = '';
+    await recargar();
+  } catch (e) { msgEn('#recMsg', 'Error al descontar: ' + esc(e.message), 'err'); }
 }
 </script>
 </body>
