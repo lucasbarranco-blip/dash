@@ -369,6 +369,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
       <label class="fld">Qué estás pegando
         <select id="recDep">
           <option value="FULL">Stock en Full · Reporte de Planificación de ML</option>
+        <option value="PUBLIC">Stock en Envío Pack · export de Publicaciones de ML</option>
           <option value="PACK">Stock en Envío Pack · export de Envíopack</option>
           <option value="PROPIO">Stock del depósito propio · export del ERP</option>
           <option value="VENTAS">Ventas de ML · descuenta el stock vendido</option>
@@ -533,6 +534,7 @@ const ST = {
   autor: '',
   pan: [],
   maestro: [],
+  maestroPend: null,
   movs: [],
   remitos: [],
   sync: null,
@@ -1205,6 +1207,11 @@ const BASES = {
     cols: ['cantidad disponible para uso', 'disponible', 'cantidad', 'stock'],
     ayuda: 'Del export del <b>ERP</b> toma <b>Referencia interna</b> como SKU y <b>Cantidad disponible para uso</b> como stock.',
   },
+  PUBLIC: {
+    nom: 'export de Publicaciones de ML',
+    cols: ['en mi dep\u00f3sito', 'en mi deposito', 'stock_flex'],
+    ayuda: 'Del export de <b>Publicaciones</b> de ML (solapa <i>Publicaciones</i>) toma <b>En mi dep\u00f3sito</b> como stock de <b>Env\u00edo Pack</b> (Colecta + Flex) y de paso actualiza el maestro con t\u00edtulo y publicaci\u00f3n de cada SKU. Ignora las filas de la publicaci\u00f3n padre y, si un SKU aparece en dos publicaciones, no lo suma dos veces.',
+  },
   VENTAS: {
     nom: 'export de Ventas de ML',
     cols: [],
@@ -1221,8 +1228,8 @@ function detectarEnFilas(filas, dep) {
     if (n > mejor) { mejor = n; hi = i; }
   }
   const heads = (filas[hi] || []).map(h => String(h).toLowerCase().trim());
-  const buscar = (...claves) => heads.findIndex(h => h && claves.some(k => h.includes(k)));
-  const cSku = buscar('sku', 'referencia interna', 'codigo', 'código');
+  const buscar = (...claves) => { for (const k of claves) { const i = heads.findIndex(h => h && h.includes(k)); if (i >= 0) return i; } return -1; };
+  const cSku = buscar('sku', 'referencia interna', 'codigo interno', 'código interno', 'codigo', 'código');
   let cU = buscar(...BASES[dep].cols);
   if (cU < 0) cU = buscar('stock', 'cantidad', 'unidades', 'disponible');
   if (cSku < 0 || cU < 0 || cSku === cU) return null;
@@ -1270,6 +1277,13 @@ function pegarBase() {
     msgEn('#recMsg', '');
     return previewVentas(v, `${num(v.lineas)} líneas pegadas del export de ventas.`);
   }
+  if (dep === 'PUBLIC') {
+    const p = leerPublicaciones(filas);
+    if (!p) return msgEn('#recMsg', 'No reconoc\u00ed el export de Publicaciones. Copi\u00e1 la solapa <b>Publicaciones</b> con la fila FAMILY_ID / ITEM_ID / SKU.', 'err');
+    msgEn('#recMsg', '');
+    ST.maestroPend = p.maestro;
+    return compararStock(p.pares, 'PACK', `Export de Publicaciones \u00b7 ${num(p.pares.length)} SKU con stock de dep\u00f3sito \u00b7 ${num(p.padres)} filas de publicaci\u00f3n padre ignoradas.`);
+  }
   const r = detectarEnFilas(filas, dep);
   if (r) {
     msgEn('#recMsg', '');
@@ -1287,9 +1301,10 @@ function pegarBase() {
 function pintarAyudaBase() {
   const dep = $('#recDep').value;
   const ventas = dep === 'VENTAS';
+  const pub = dep === 'PUBLIC';
   $('#recAyuda').innerHTML = BASES[dep].ayuda;
   const lbl = $('#lblFalt'); if (lbl) lbl.style.display = ventas ? 'none' : '';
-  const btn = $('#btnRecTxt'); if (btn) btn.textContent = ventas ? 'Leer las ventas' : 'Comparar con el sistema';
+  const btn = $('#btnRecTxt'); if (btn) btn.textContent = ventas ? 'Leer las ventas' : pub ? 'Leer las publicaciones' : 'Comparar con el sistema';
   const ta = $('#recTxt');
   if (ta) ta.placeholder = ventas
     ? '# de venta\tFecha de venta\tEstado\tUnidades\tSKU\tForma de entrega\n2000012345\t14 de agosto de 2026\tEntregado\t2\tGH-101\tMercado Envíos Full'
@@ -1366,6 +1381,8 @@ async function aplicarRec() {
     await DB.agregarMovs(movs);
     const nuevos = p.difs.filter(d => d.nuevo).map(d => ({ sku: d.sku, producto: d.producto || null }));
     if (nuevos.length) await DB.guardarMaestro(nuevos);
+    // el export de Publicaciones ademas trae titulo y publicaciones de cada SKU
+    if (ST.maestroPend && ST.maestroPend.length) { await DB.guardarMaestro(ST.maestroPend); ST.maestroPend = null; }
     toast(`${movs.length} ajustes aplicados en ${DEPS[p.dep].nom}`, 'ok');
     ST.recPend = null;
     await recargar(); pintarPreviewRec();
@@ -2294,70 +2311,137 @@ function fechaML(v) {
 
 /* Forma de entrega -> deposito */
 function depositoDeEnvio(txt) {
-  const s = String(txt || '').toLowerCase();
+  const s = String(txt || '').trim().toLowerCase();
+  if (!s) return 'FULL';                 // Flex y Colecta siempre declaran la entrega: si viene vacia, salio de Full
   if (s.includes('full')) return 'FULL';
-  return 'PACK';   // Flex, Colecta, ML Envios, retiro: todo sale de Envio Pack
+  return 'PACK';                          // Flex, Colecta, ML Envios, retiro: todo sale de Envio Pack
 }
 
 /* Lee una matriz de filas (de Excel o de lo pegado) y arma las ventas */
+function colPorPrioridad(heads) {
+  return (...claves) => { for (const k of claves) { const i = heads.findIndex(h => h && h.includes(k)); if (i >= 0) return i; } return -1; };
+}
+
+/* Lee el export de Publicaciones de ML: stock de deposito (Flex+Colecta) y maestro */
+function leerPublicaciones(filas) {
+  if (!filas || filas.length < 2) return null;
+  let hi = -1;
+  for (let i = 0; i < Math.min(20, filas.length); i++) {
+    const h = (filas[i] || []).map(c => String(c).toUpperCase().trim());
+    if (h.includes('ITEM_ID') && h.includes('SKU')) { hi = i; break; }
+  }
+  if (hi < 0) return null;
+  const heads = (filas[hi] || []).map(h => String(h).toUpperCase().trim());
+  const idx = n => heads.indexOf(n);
+  const cMla = idx('ITEM_ID'), cSku = idx('SKU'), cTit = idx('TITLE'),
+        cVar = idx('VARIATIONS'), cFlex = idx('STOCK_FLEX'), cFull = idx('STOCK_FULL');
+  if (cMla < 0 || cSku < 0) return null;
+
+  const val = v => { const s = String(v ?? '').trim(); return (!s || s === '-' || s === 'N/A') ? null : Math.round(numAR(s)); };
+  const tituloDe = new Map();      // MLA -> titulo de la fila padre
+  for (let i = hi + 1; i < filas.length; i++) {
+    const f = filas[i] || [];
+    const mla = String(f[cMla] ?? '').trim();
+    const t = cTit >= 0 ? String(f[cTit] ?? '').trim() : '';
+    if (/^MLA\d+$/i.test(mla) && t && !tituloDe.has(mla)) tituloDe.set(mla, t);
+  }
+  const m = new Map(); let padres = 0;
+  for (let i = hi + 1; i < filas.length; i++) {
+    const f = filas[i] || [];
+    const mla = String(f[cMla] ?? '').trim();
+    if (!/^MLA\d+$/i.test(mla)) continue;   // saltea las filas de ayuda que ML pone debajo del encabezado
+    const sku = String(f[cSku] ?? '').trim();
+    if (!sku) { padres++; continue; }
+    const e = m.get(sku) || { sku, pack: null, full: null, mlas: new Set(), nombre: '', variante: '' };
+    e.mlas.add(mla.replace(/^MLA/i, ''));
+    if (!e.nombre) e.nombre = (cTit >= 0 ? String(f[cTit] ?? '').trim() : '') || tituloDe.get(mla) || '';
+    if (!e.variante && cVar >= 0) { const v = String(f[cVar] ?? '').trim(); if (v && v !== '-') e.variante = v; }
+    const p = cFlex >= 0 ? val(f[cFlex]) : null;   // "En mi deposito" = Flex + Colecta
+    const u = cFull >= 0 ? val(f[cFull]) : null;
+    // un mismo SKU puede figurar en dos publicaciones con el MISMO stock: se toma el mayor, no la suma
+    if (p !== null) e.pack = e.pack === null ? p : Math.max(e.pack, p);
+    if (u !== null) e.full = e.full === null ? u : Math.max(e.full, u);
+    m.set(sku, e);
+  }
+  const todos = Array.from(m.values());
+  const pares = todos.filter(e => e.pack !== null).map(e => ({ sku: e.sku, u: e.pack, nombre: e.nombre }));
+  if (!todos.length) return null;
+  const maestro = todos.map(e => ({
+    sku: e.sku, producto: e.nombre, variante: e.variante, mlas: Array.from(e.mlas).join(','),
+  }));
+  return { pares, maestro, padres, conFull: todos.filter(e => e.full !== null).length };
+}
+
+/* Lee el export de Ventas de ML y arma el descuento de stock */
 function leerVentas(filas) {
   if (!filas || filas.length < 2) return null;
-  let hi = 0, mejor = -1;
-  for (let i = 0; i < Math.min(15, filas.length); i++) {
-    const n = (filas[i] || []).filter(c => String(c).trim()).length;
-    if (n > mejor) { mejor = n; hi = i; }
+  let hi = -1;
+  for (let i = 0; i < Math.min(20, filas.length); i++) {
+    const h = (filas[i] || []).map(c => String(c).toLowerCase().trim());
+    if (h.some(x => x.includes('# de venta') || x.includes('n\u00ba de venta') || x.includes('n\u00b0 de venta'))) { hi = i; break; }
   }
+  if (hi < 0) { let mejor = -1; for (let i = 0; i < Math.min(15, filas.length); i++) { const n = (filas[i] || []).filter(c => String(c).trim()).length; if (n > mejor) { mejor = n; hi = i; } } }
   const heads = (filas[hi] || []).map(h => String(h).toLowerCase().trim());
-  // primera aparicion de cada columna (el export de ML repite encabezados)
-  const b = (...claves) => heads.findIndex(h => h && claves.some(k => h.includes(k)));
-  const cVenta = b('# de venta', 'nº de venta', 'n° de venta', 'numero de venta', 'número de venta', 'venta');
+  // el export repite encabezados (Estado tambien es la provincia, Unidades vuelve en devoluciones):
+  // se busca por prioridad y siempre gana la primera aparicion
+  const b = colPorPrioridad(heads);
+  const cVenta = b('# de venta', 'n\u00ba de venta', 'n\u00b0 de venta', 'numero de venta', 'n\u00famero de venta');
   const cUnid  = b('unidades');
   const cSku   = b('sku');
-  const cEnvio = b('forma de entrega', 'tipo de envio', 'tipo de envío', 'metodo de envio', 'método de envío');
+  const cEnvio = b('forma de entrega', 'tipo de env\u00edo', 'tipo de envio', 'm\u00e9todo de env\u00edo', 'metodo de envio');
   const cFecha = b('fecha de venta', 'fecha');
   const cEstado = b('estado');
-  const cTitulo = b('título de', 'titulo de', 'título', 'titulo', 'producto', 'descripción', 'descripcion');
-  const cMla = b('# de publicación', '# de publicacion', 'publicación', 'publicacion');
+  const cTitulo = b('t\u00edtulo de la publicaci\u00f3n', 'titulo de la publicacion', 't\u00edtulo de', 'titulo de', 't\u00edtulo', 'titulo');
+  const cMla = b('# de publicaci\u00f3n', '# de publicacion', 'publicaci\u00f3n', 'publicacion');
   if (cVenta < 0 || cUnid < 0) return null;
 
   const ventas = new Map();     // clave venta|sku
-  let ultVenta = '', ultEnvio = '', ultFecha = null, ultEstado = '';
-  let lineas = 0, canceladas = 0, sinSku = 0;
+  let lineas = 0, canceladas = 0, sinSku = 0, paquetes = 0, heredadas = 0, aFull = 0;
+  let pend = 0, pEnvio = '', pFecha = null;   // paquete abierto: cuantas lineas hijas faltan
 
   for (let i = hi + 1; i < filas.length; i++) {
     const f = filas[i] || [];
-    const venta = String(f[cVenta] ?? '').replace(/[^\dA-Za-z]/g, '') || ultVenta;
-    if (!venta) continue;
-    if (venta !== ultVenta) { ultEnvio = ''; ultFecha = null; ultEstado = ''; }
-    ultVenta = venta;
-    // en los paquetes de varios productos solo la primera linea trae envio, fecha y estado
-    const envio = (cEnvio >= 0 ? String(f[cEnvio] ?? '').trim() : '') || ultEnvio;
-    if (envio) ultEnvio = envio;
-    const fecha = (cFecha >= 0 ? fechaML(f[cFecha]) : null) || ultFecha;
-    if (fecha) ultFecha = fecha;
-    const estado = (cEstado >= 0 ? String(f[cEstado] ?? '').trim() : '') || ultEstado;
-    if (estado) ultEstado = estado;
+    const venta = String(f[cVenta] ?? '').replace(/[^\dA-Za-z]/g, '');
+    const estado = cEstado >= 0 ? String(f[cEstado] ?? '').trim() : '';
+    const envioFila = cEnvio >= 0 ? String(f[cEnvio] ?? '').trim() : '';
+    const fechaFila = cFecha >= 0 ? fechaML(f[cFecha]) : null;
+
+    // fila cabecera de un paquete: no tiene unidades ni SKU, solo la forma de entrega del paquete
+    const mp = estado.match(/paquete de\s+(\d+)\s+producto/i);
+    if (mp) { pend = +mp[1]; pEnvio = envioFila; pFecha = fechaFila; paquetes++; continue; }
 
     const u = Math.round(numAR(f[cUnid]));
-    if (!u) continue;
+    if (!venta || !u) continue;
+
+    // cada hijo del paquete trae su propio # de venta pero hereda entrega y fecha de la cabecera
+    let envio = envioFila, fecha = fechaFila;
+    if (pend > 0) {
+      if (!envio) { envio = pEnvio; heredadas++; }
+      if (!fecha) fecha = pFecha;
+      pend--;
+    }
+
     lineas++;
-    if (/cancel|devol|reclam/i.test(estado)) { canceladas++; continue; }
+    if (/cancel|devol|reclam|no despach/i.test(estado)) { canceladas++; continue; }
 
     let sku = cSku >= 0 ? String(f[cSku] ?? '').trim() : '';
+    if (sku === '-' || sku === 'N/A') sku = '';
     if (!sku) { const mla = cMla >= 0 ? soloDig(f[cMla]) : ''; sku = mla ? 'MLA:' + mla : ''; if (sku) sinSku++; }
     if (!sku) continue;
 
-    const dep = depositoDeEnvio(ultEnvio);
+    const dep = depositoDeEnvio(envio);
+    if (!envio) aFull++;
     const k = venta + '|' + sku;
     if (ventas.has(k)) ventas.get(k).unidades += u;
     else ventas.set(k, {
       venta, sku, deposito: dep, unidades: u,
-      fecha: ultFecha || hoy(),
+      fecha: fecha || hoy(),
       titulo: cTitulo >= 0 ? String(f[cTitulo] ?? '').trim().slice(0, 60) : '',
     });
   }
   if (!ventas.size) return null;
-  return { filas: Array.from(ventas.values()), lineas, canceladas, sinSku, sinEnvio: !heads.some(h => h.includes('entrega') || h.includes('envio') || h.includes('envío')) };
+  return { filas: Array.from(ventas.values()), lineas, canceladas, sinSku, paquetes, heredadas, aFull,
+           sinEnvio: cEnvio < 0 };
 }
 
 function previewVentas(res, nota) {
@@ -2377,6 +2461,7 @@ function previewVentas(res, nota) {
       ${new Date(fechas[fechas.length - 1] + 'T12:00:00').toLocaleDateString('es-AR')}.
       Salen ${num(u(full))} u de Full y ${num(u(pack))} u de Envío Pack.
       ${res.canceladas ? `Se saltean ${num(res.canceladas)} líneas canceladas o devueltas.` : ''}
+      ${res.paquetes ? `${num(res.paquetes)} paquetes de varios productos: sus ${num(res.heredadas)} líneas hijas heredan la forma de entrega de la cabecera.` : ''}
       ${nuevos.size ? `${num(nuevos.size)} SKU no están en el maestro y se crean.` : ''}
       ${res.sinEnvio ? '<br><b>Ojo:</b> el archivo no trae la forma de entrega, así que todo se descuenta de Envío Pack.' : ''}
     </div>
