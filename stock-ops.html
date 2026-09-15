@@ -38,6 +38,18 @@ nav button{background:none;border:none;padding:11px 15px;cursor:pointer;color:va
 nav button:hover{color:var(--tx)}
 nav button.on{color:var(--tx);border-bottom-color:var(--acc)}
 
+/* termometros */
+.termo{position:relative;height:16px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);overflow:hidden;min-width:150px}
+.termo i{position:absolute;top:0;bottom:0;left:0;display:block}
+.termo .hay{background:var(--ok)}
+.termo .hay.w{background:var(--warn)} .termo .hay.b{background:var(--bad)} .termo .hay.n{background:var(--tx3)}
+.termo .cam{background:repeating-linear-gradient(135deg,var(--tr),var(--tr) 5px,rgba(139,92,246,.45) 5px,rgba(139,92,246,.45) 10px)}
+.termo .meta{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--tx2);left:100%}
+.termoTxt{font-size:11px;color:var(--tx2);white-space:nowrap}
+tr.det td{background:var(--panel2)}
+tr.cli{cursor:pointer}
+tr.cli:hover td{background:#20253180}
+
 main{padding:16px;max-width:1600px;margin:0 auto}
 .page{display:none} .page.on{display:block}
 
@@ -138,19 +150,14 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
     <span class="pill" id="pillSync"><i class="dot"></i><span id="txtSync">sync ML: —</span></span>
     <div class="grow"></div>
     <input type="text" id="autor" placeholder="Tu nombre" style="min-width:130px">
+    <button class="btn sm" id="btnBases">Bases de ML</button>
     <button class="btn sm" id="btnCfg">Config</button>
     <button class="btn sm pri" id="btnRefresh">Actualizar</button>
   </div>
   <nav>
-    <button data-p="panorama" class="on">Panorama</button>
-    <button data-p="movimientos">Movimientos</button>
-    <button data-p="carga">Ingresos y ajustes</button>
-    <button data-p="remitos">Envíos y tránsito</button>
-    <button data-p="alertas">Alertas <span id="navAlertas" class="tag bad" style="display:none"></span></button>
-    <button data-p="calendario">Calendario</button>
-    <button data-p="reconcil">Pegar bases de ML</button>
-    <button data-p="maestro">Maestro SKU</button>
-    <button data-p="config">Configuración</button>
+    <button data-p="panorama" class="on">Stock actual</button>
+    <button data-p="pedido">Pedido a realizar <span id="navPedido" class="tag warn" style="display:none"></span></button>
+    <button data-p="termo">Termómetros <span id="navTermo" class="tag info" style="display:none"></span></button>
   </nav>
 </header>
 
@@ -185,8 +192,103 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
   </div>
 </section>
 
+<!-- ================= PEDIDO A REALIZAR ================= -->
+<section class="page" id="p-pedido">
+  <div class="kpis" id="kpisPed"></div>
+  <div class="card">
+    <div class="bar">
+      <h3 style="margin:0">Qué hay que reponer <small>por días de cobertura</small></h3>
+      <div class="grow"></div>
+      <label class="fld">Días a cubrir en Full<input type="number" id="pedDiasFull" value="21" min="1" max="120" style="width:90px"></label>
+      <label class="fld">Días a cubrir en Pack<input type="number" id="pedDiasPack" value="21" min="1" max="120" style="width:90px"></label>
+    </div>
+    <div class="bar">
+      <input type="text" id="pedQ" placeholder="Buscar SKU, producto o MLA…">
+      <select id="pedDest">
+        <option value="">Full y Envío Pack</option>
+        <option value="FULL">Solo Full</option>
+        <option value="PACK">Solo Envío Pack</option>
+      </select>
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="pedCamino" checked> contar lo que está en camino</label>
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="pedSoloVenta" checked> solo los que vendieron en 30d</label>
+      <label class="pill" style="cursor:pointer"><input type="checkbox" id="pedSoloPropio"> solo lo que puedo mandar hoy</label>
+      <div class="grow"></div>
+      <span class="muted2" id="pedCnt"></span>
+      <button class="btn sm" id="btnPedCsv">CSV</button>
+      <button class="btn sm pri" id="btnPedEnvio">Pasar a un envío</button>
+    </div>
+    <div class="hint" style="margin-bottom:8px">
+      Venta diaria = unidades vendidas en 30 días ÷ 30. <b>Objetivo</b> = venta diaria × los días a cubrir (si el SKU no vendió,
+      se usa el stock mínimo). <b>A reponer</b> = objetivo − lo que hay − lo que está en camino. <b>Mandar hoy</b> sale del
+      depósito propio; lo que no alcanza queda como <b>comprar</b>.
+    </div>
+    <div class="tblwrap"><table id="tPed"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ================= TERMOMETROS ================= -->
+<section class="page" id="p-termo">
+  <div class="kpis" id="kpisTermo"></div>
+  <div class="card">
+    <div class="bar">
+      <h3 style="margin:0">Termómetro por publicación <small>lo que hay y lo que viene en camino</small></h3>
+      <div class="grow"></div>
+      <label class="fld">Días que quiero cubrir<input type="number" id="termoMeta" value="21" min="1" max="120" style="width:90px"></label>
+    </div>
+    <div class="bar">
+      <input type="text" id="termoQ" placeholder="Buscar publicación, SKU o producto…">
+      <select id="termoDest">
+        <option value="">Full y Envío Pack</option>
+        <option value="FULL">Solo Full</option>
+        <option value="PACK">Solo Envío Pack</option>
+      </select>
+      <select id="termoFiltro">
+        <option value="camino">Con mercadería en camino</option>
+        <option value="">Todas las publicaciones</option>
+        <option value="rojo">En rojo (menos de 7 días)</option>
+        <option value="bajo">Por debajo del objetivo</option>
+      </select>
+      <div class="grow"></div>
+      <span class="muted2" id="termoCnt"></span>
+      <button class="btn sm" id="btnTermoCsv">CSV</button>
+    </div>
+    <div class="hint" style="margin-bottom:8px">
+      La barra verde es el stock disponible hoy y la violeta rayada lo que viene en camino de tus envíos.
+      La rayita es el objetivo de días. Clickeá una fila para ver de qué remito viene cada unidad.
+    </div>
+    <div class="tblwrap"><table id="tTermo"><thead></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <h3>Nuevo envío <small>sale del depósito propio y queda en camino hasta que lo confirmes</small></h3>
+    <div class="bar" style="align-items:flex-end">
+      <label class="fld">Destino<select id="rDest"><option value="FULL">Full</option><option value="PACK">Envío Pack</option></select></label>
+      <label class="fld">N° de remito<input type="text" id="rId" placeholder="se genera solo"></label>
+      <label class="fld">Bultos<input type="number" id="rBultos" style="width:90px"></label>
+      <label class="fld" style="flex:1">Detalle<input type="text" id="rDet" placeholder="Envío semanal"></label>
+    </div>
+    <div id="rLineas"></div>
+    <div class="bar">
+      <button class="btn sm" id="btnRLinea">+ Línea</button>
+      <button class="btn sm" id="btnRPegar">Pegar lista</button>
+      <div class="grow"></div>
+      <span class="muted" id="rTot"></span>
+      <button class="btn pri" id="btnRGuardar">Registrar envío</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Envíos en camino <small>confirmá el ingreso cuando la mercadería entra</small></h3>
+    <div id="rTransito"></div>
+  </div>
+  <div class="card">
+    <h3>Historial de envíos</h3>
+    <div class="tblwrap" style="max-height:40vh"><table id="tRem"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
 <!-- ================= MOVIMIENTOS ================= -->
 <section class="page" id="p-movimientos">
+  <div class="bar"><button class="btn sm" data-volver>← Volver a Stock actual</button></div>
   <div class="card">
     <div class="bar">
       <input type="text" id="mq" placeholder="Buscar SKU o detalle…">
@@ -209,6 +311,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
 
 <!-- ================= CARGA MANUAL ================= -->
 <section class="page" id="p-carga">
+  <div class="bar"><button class="btn sm" data-volver>← Volver a Stock actual</button></div>
   <div class="grid2">
     <div class="card">
       <h3>Movimiento manual <small>una línea</small></h3>
@@ -270,37 +373,9 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
   </div>
 </section>
 
-<!-- ================= REMITOS ================= -->
-<section class="page" id="p-remitos">
-  <div class="card">
-    <h3>Nuevo envío <small>sale del depósito propio y queda en camino hasta que lo confirmes</small></h3>
-    <div class="bar" style="align-items:flex-end">
-      <label class="fld">Destino<select id="rDest"><option value="FULL">Full</option><option value="PACK">Envío Pack</option></select></label>
-      <label class="fld">N° de remito<input type="text" id="rId" placeholder="se genera solo"></label>
-      <label class="fld">Bultos<input type="number" id="rBultos" style="width:90px"></label>
-      <label class="fld" style="flex:1">Detalle<input type="text" id="rDet" placeholder="Envío semanal"></label>
-    </div>
-    <div id="rLineas"></div>
-    <div class="bar">
-      <button class="btn sm" id="btnRLinea">+ Línea</button>
-      <button class="btn sm" id="btnRPegar">Pegar lista</button>
-      <div class="grow"></div>
-      <span class="muted" id="rTot"></span>
-      <button class="btn pri" id="btnRGuardar">Registrar envío</button>
-    </div>
-  </div>
-  <div class="card">
-    <h3>En tránsito</h3>
-    <div id="rTransito"></div>
-  </div>
-  <div class="card">
-    <h3>Historial de remitos</h3>
-    <div class="tblwrap" style="max-height:40vh"><table id="tRem"><thead></thead><tbody></tbody></table></div>
-  </div>
-</section>
-
 <!-- ================= ALERTAS ================= -->
 <section class="page" id="p-alertas">
+  <div class="bar"><button class="btn sm" data-volver>← Volver a Stock actual</button></div>
   <div class="kpis" id="kpisAlertas"></div>
   <div class="card">
     <div class="bar">
@@ -323,6 +398,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
 
 <!-- ================= CALENDARIO ================= -->
 <section class="page" id="p-calendario">
+  <div class="bar"><button class="btn sm" data-volver>← Volver a Stock actual</button></div>
   <div class="card">
     <div class="bar">
       <button class="btn sm" id="calPrev">‹</button>
@@ -357,6 +433,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
 
 <!-- ================= PEGAR BASES DE ML ================= -->
 <section class="page" id="p-reconcil">
+  <div class="bar"><button class="btn sm" data-volver>← Volver a Stock actual</button></div>
   <div class="card">
     <h3>Pegar bases de ML <small>el stock real de cada depósito, tal como lo exportás</small></h3>
     <p class="muted" style="margin-top:0">
@@ -406,6 +483,7 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
 
 <!-- ================= MAESTRO ================= -->
 <section class="page" id="p-maestro">
+  <div class="bar"><button class="btn sm" data-volver>← Volver a Stock actual</button></div>
   <div class="card">
     <div class="bar">
       <input type="text" id="maq" placeholder="Buscar…">
@@ -426,6 +504,14 @@ tbody tr.sub td{background:#14171f;color:var(--tx2);font-size:12px}
 
 <!-- ================= CONFIGURACION ================= -->
 <section class="page" id="p-config">
+  <div class="bar">
+    <button class="btn sm" data-volver>← Volver a Stock actual</button>
+    <div class="grow"></div>
+    <button class="btn sm" id="btnIrMaestro">Maestro de SKU</button>
+    <button class="btn sm" id="btnIrMovs">Movimientos</button>
+    <button class="btn sm" id="btnIrCarga">Ingresos y ajustes</button>
+    <button class="btn sm" id="btnIrCal">Calendario</button>
+  </div>
   <div id="cfgMsg"></div>
   <div class="grid2">
     <div class="card">
@@ -1562,6 +1648,7 @@ async function recargar() {
     $('#dlSku').innerHTML = ST.pan.slice(0, 3000).map(r => `<option value="${esc(r.sku)}">${esc((r.producto || '').slice(0, 40))}</option>`).join('');
     pintarPanorama(); pintarMovs(); pintarRemitos(); pintarMaestro(); pintarUltimos(); pintarSync();
     pintarAlertas(); pintarCalendario(); pintarHistorial(); pintarConfig();
+    pintarPedido(); pintarTermo();
   } catch (e) {
     toast('Error al leer: ' + e.message, 'err');
     if (String(e.message).includes('401')) {
@@ -1656,7 +1743,13 @@ function eventos() {
     ST.maestro.map(m => [m.sku, m.producto, m.variante, m.categoria, (m.mlas || []).join(','), m.canal_full !== false ? 'Si' : 'No', m.canal_pack !== false ? 'Si' : 'No', m.min_full, m.min_pack, m.cobertura_dias]));
 
   $('#btnRefresh').onclick = recargar;
-  $('#btnCfg').onclick = modalConfig;
+  $('#btnCfg').onclick = () => irA('config');
+  $('#btnBases').onclick = () => irA('reconcil');
+  $$('[data-volver]').forEach(b => b.onclick = () => irA('panorama'));
+  $('#btnIrMaestro').onclick = () => irA('maestro');
+  $('#btnIrMovs').onclick = () => irA('movimientos');
+  $('#btnIrCarga').onclick = () => irA('carga');
+  $('#btnIrCal').onclick = () => irA('calendario');
   $('#modal').onclick = e => { if (e.target.id === 'modal') cerrarModal(); };
   $('#autor').oninput = e => { ST.autor = e.target.value.trim(); lsSet('stockops_autor', ST.autor); };
   eventosV2();
@@ -2131,7 +2224,15 @@ async function guardarConfigApp() {
 
 function irA(pagina) {
   const b = document.querySelector(`nav button[data-p="${pagina}"]`);
-  if (b) b.click();
+  if (b) { b.click(); }
+  else {
+    const p = $('#p-' + pagina);
+    if (!p) return;
+    $$('nav button').forEach(x => x.classList.remove('on'));
+    $$('.page').forEach(x => x.classList.remove('on'));
+    p.classList.add('on');
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* ==========================================================
@@ -2172,6 +2273,7 @@ function eventosV2() {
   $('#btnAuroraTraer')?.addEventListener('click', traerDeAurora);
   $('#cfgAuroraUrl')?.addEventListener('input', e => { ST.cfgApp.aurora = { ...cfgAurora(), url: e.target.value.trim() }; });
   $('#btnCfgConn')?.addEventListener('click', modalConfig);
+  eventosV4();
 }
 
 /* ==========================================================
@@ -2508,6 +2610,324 @@ async function aplicarVentas() {
     $('#recPrev').innerHTML = '';
     await recargar();
   } catch (e) { msgEn('#recMsg', 'Error al descontar: ' + esc(e.message), 'err'); }
+}
+
+/* ==========================================================
+   v4 · PEDIDO A REALIZAR (por dias de cobertura)
+   ========================================================== */
+function pedDias() {
+  const f = Math.max(1, Math.round(numAR($('#pedDiasFull')?.value)) || 21);
+  const p = Math.max(1, Math.round(numAR($('#pedDiasPack')?.value)) || 21);
+  lsSet('stockops_ped_dias', JSON.stringify({ FULL: f, PACK: p }));
+  return { FULL: f, PACK: p };
+}
+
+/* Por cada SKU y destino: cuanto falta para cubrir los dias objetivo */
+function calcularPedido() {
+  const dias = pedDias();
+  const conCamino = $('#pedCamino')?.checked !== false;
+  const soloVenta = !!$('#pedSoloVenta')?.checked;
+  const out = [];
+  for (const r of ST.pan.map(derivar)) {
+    if (r.activo === false) continue;
+    let propioLibre = Math.max(0, r.propio_u);
+    const cand = [];
+    for (const dep of ['FULL', 'PACK']) {
+      if (dep === 'FULL' && !r.canal_full) continue;
+      if (dep === 'PACK' && !r.canal_pack) continue;
+      const u30 = dep === 'FULL' ? r.u30_full : r.u30_pack;
+      const vd = u30 / 30;
+      const hay = dep === 'FULL' ? r.full_u : r.pack_u;
+      const camino = dep === 'FULL' ? r.tr_full_u : r.tr_pack_u;
+      const disp = hay + (conCamino ? camino : 0);
+      const vende = vd > 0;
+      if (!vende && soloVenta) continue;
+      const objetivo = vende ? Math.ceil(vd * dias[dep]) : umbralDe(r, dep);
+      if (objetivo <= 0) continue;
+      const faltan = objetivo - disp;
+      if (faltan <= 0) continue;
+      cand.push({
+        sku: r.sku, producto: r.producto, mlas: r.mlas || [], deposito: dep,
+        u30, vd, hay, camino, disp, objetivo, faltan, propio: r.propio_u,
+        cob: vende ? disp / vd : null, base: vende ? 'cobertura' : 'minimo',
+      });
+    }
+    /* el deposito propio se reparte primero al canal con menos dias de cobertura */
+    cand.sort((a, b) => (a.cob === null ? 1e9 : a.cob) - (b.cob === null ? 1e9 : b.cob));
+    for (const c of cand) {
+      c.mandar = Math.min(c.faltan, propioLibre);
+      propioLibre -= c.mandar;
+      c.comprar = c.faltan - c.mandar;
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+function pedFiltrado() {
+  const q = ($('#pedQ')?.value || '').toLowerCase().trim();
+  const qd = q.replace(/\D/g, '');
+  const dest = $('#pedDest')?.value || '';
+  let f = calcularPedido();
+  if (dest) f = f.filter(x => x.deposito === dest);
+  if ($('#pedSoloPropio')?.checked) f = f.filter(x => x.mandar > 0);
+  if (q) f = f.filter(x => x.sku.toLowerCase().includes(q) || (x.producto || '').toLowerCase().includes(q) ||
+    (qd.length >= 4 && (x.mlas || []).some(m => String(m).includes(qd))));
+  return f.sort((a, b) => (a.cob === null ? 1e9 : a.cob) - (b.cob === null ? 1e9 : b.cob) || b.faltan - a.faltan);
+}
+
+function pintarPedido() {
+  if (!$('#tPed')) return;
+  const filas = pedFiltrado();
+  const todas = calcularPedido();
+  const suma = (l, k) => l.reduce((a, x) => a + (x[k] || 0), 0);
+  const aFull = todas.filter(x => x.deposito === 'FULL'), aPack = todas.filter(x => x.deposito === 'PACK');
+  const d = pedDias();
+  $('#kpisPed').innerHTML = [
+    { c: 'warn', l: 'SKU a reponer', v: num(new Set(todas.map(x => x.sku)).size), s: todas.length + ' líneas (Full + Pack)' },
+    { c: 'full', l: 'Mandar a Full', v: num(suma(aFull, 'mandar')), s: num(suma(aFull, 'faltan')) + ' u para cubrir ' + d.FULL + ' días' },
+    { c: 'pack', l: 'Mandar a Envío Pack', v: num(suma(aPack, 'mandar')), s: num(suma(aPack, 'faltan')) + ' u para cubrir ' + d.PACK + ' días' },
+    { c: 'propio', l: 'Sale del depósito propio', v: num(suma(todas, 'mandar')), s: 'hay stock para mandarlo hoy' },
+    { c: 'bad', l: 'Falta comprar', v: num(suma(todas, 'comprar')), s: 'no alcanza el depósito propio' },
+  ].map(x => `<div class="kpi ${x.c}"><div class="lab">${x.l}</div><div class="val">${x.v}</div><div class="sub">${esc(x.s)}</div></div>`).join('');
+
+  $('#pedCnt').textContent = `${num(filas.length)} líneas`;
+  $('#tPed thead').innerHTML = `<tr><th>SKU</th><th>Producto</th><th>Destino</th><th class="num">Vta 30d</th>
+    <th class="num">Por día</th><th class="num">Hay</th><th class="num">En camino</th><th class="num">Días hoy</th>
+    <th class="num">Objetivo</th><th class="num">A reponer</th><th class="num">Mandar hoy</th><th class="num">Comprar</th></tr>`;
+  $('#tPed tbody').innerHTML = filas.slice(0, 700).map(x => `<tr>
+    <td class="mono">${esc(x.sku)}</td>
+    <td title="${esc(x.producto)}">${esc((x.producto || '').slice(0, 42))}</td>
+    <td><span class="tag ${x.deposito === 'FULL' ? 'info' : 'warn'}">${DEPS[x.deposito].corto}</span>${x.base === 'minimo' ? ' <span class="muted2" title="el SKU no vendió en 30 días: se usa el stock mínimo">por mín.</span>' : ''}</td>
+    <td class="num">${num(x.u30)}</td>
+    <td class="num muted">${dec(x.vd, 1)}</td>
+    <td class="num">${num(x.hay)}</td>
+    <td class="num muted2">${x.camino ? num(x.camino) : ''}</td>
+    <td class="num" style="color:${x.cob === null ? 'var(--tx3)' : x.cob < 7 ? 'var(--bad)' : 'var(--warn)'}">${x.cob === null ? '—' : dec(x.cob, 0)}</td>
+    <td class="num muted">${num(x.objetivo)}</td>
+    <td class="num"><b>${num(x.faltan)}</b></td>
+    <td class="num" style="color:${x.mandar > 0 ? 'var(--propio)' : 'var(--tx3)'}"><b>${num(x.mandar)}</b></td>
+    <td class="num" style="color:${x.comprar > 0 ? 'var(--bad)' : 'var(--tx3)'}">${num(x.comprar)}</td>
+  </tr>`).join('') || `<tr><td colspan="12" class="muted" style="padding:26px;text-align:center">No hay nada para reponer con estos días de cobertura.</td></tr>`;
+  if (filas.length > 700) $('#pedCnt').textContent += ' · mostrando 700';
+
+  const chip = $('#navPedido');
+  if (chip) {
+    const n = new Set(todas.map(x => x.sku)).size;
+    if (n) { chip.style.display = ''; chip.textContent = n; } else chip.style.display = 'none';
+  }
+}
+
+/* Pasa lo que se puede mandar hoy a las lineas del envio */
+function pedAEnvio() {
+  const filas = pedFiltrado().filter(x => x.mandar > 0);
+  if (!filas.length) return toast('No hay unidades en el depósito propio para mandar', 'err');
+  const destinos = new Set(filas.map(x => x.deposito));
+  if (destinos.size > 1) return toast('Elegí un destino (solo Full o solo Pack) para armar el envío', 'err');
+  const dep = filas[0].deposito;
+  const porSku = new Map();
+  filas.forEach(x => porSku.set(x.sku, (porSku.get(x.sku) || 0) + x.mandar));
+  ST.lineasRemito = Array.from(porSku.entries()).map(([sku, u]) => ({ sku, u: String(u) }));
+  $('#rDest').value = dep;
+  $('#rDet').value = `Reposición ${DEPS[dep].corto} ${new Date().toLocaleDateString('es-AR')}`;
+  irA('termo');
+  pintarLineasRemito();
+  toast(`${porSku.size} SKU cargados en el envío a ${DEPS[dep].corto}. Revisalo y registralo.`, 'ok');
+}
+
+/* ==========================================================
+   v4 · TERMOMETROS POR PUBLICACION
+   ========================================================== */
+/* Que remito en camino trae cada SKU y cuantas unidades quedan pendientes */
+function caminoPorSku() {
+  const SEP = String.fromCharCode(1);
+  const enT = new Map(ST.remitos.filter(r => r.estado === 'en_transito').map(r => [String(r.id), r]));
+  const acc = new Map();
+  for (const m of ST.movs) {
+    if (!m.remito || !enT.has(String(m.remito))) continue;
+    if (m.deposito !== 'TR_FULL' && m.deposito !== 'TR_PACK') continue;
+    const k = String(m.remito) + SEP + m.sku;
+    acc.set(k, (acc.get(k) || 0) + (Number(m.unidades) || 0));
+  }
+  const map = new Map();
+  for (const [k, u] of acc) {
+    if (u <= 0) continue;
+    const i = k.indexOf(SEP);
+    const rid = k.slice(0, i), sku = k.slice(i + 1);
+    const r = enT.get(rid);
+    if (!map.has(sku)) map.set(sku, []);
+    map.get(sku).push({ remito: rid, destino: r.destino, fecha: r.fecha_envio, detalle: r.detalle || '', u, sku });
+  }
+  return map;
+}
+
+function termoMeta() {
+  const m = Math.max(1, Math.round(numAR($('#termoMeta')?.value)) || 21);
+  lsSet('stockops_termo_meta', String(m));
+  return m;
+}
+
+function termoFilas() {
+  const dest = $('#termoDest')?.value || '';
+  const cam = caminoPorSku();
+  const g = new Map();
+  for (const r of ST.pan.map(derivar)) {
+    if (r.activo === false) continue;
+    if (dest === 'FULL' && !r.canal_full) continue;
+    if (dest === 'PACK' && !r.canal_pack) continue;
+    const hay = dest === 'FULL' ? r.full_u : dest === 'PACK' ? r.pack_u : r.full_u + r.pack_u;
+    const camino = dest === 'FULL' ? r.tr_full_u : dest === 'PACK' ? r.tr_pack_u : r.tr_full_u + r.tr_pack_u;
+    const u30 = dest === 'FULL' ? r.u30_full : dest === 'PACK' ? r.u30_pack : r.u30;
+    const mlas = (r.mlas || []).length ? r.mlas : [''];
+    for (const mla of mlas) {
+      const key = mla ? 'MLA' + mla : 'SIN:' + r.sku;
+      if (!g.has(key)) g.set(key, { key, mla: mla || '', producto: r.producto || '', skus: [], hay: 0, camino: 0, u30: 0, propio: 0, envios: [] });
+      const x = g.get(key);
+      x.skus.push(r.sku);
+      if (!x.producto) x.producto = r.producto || '';
+      x.hay += hay; x.camino += camino; x.u30 += u30; x.propio += r.propio_u;
+      (cam.get(r.sku) || []).forEach(e => { if (!dest || e.destino === dest) x.envios.push(e); });
+    }
+  }
+  const meta = termoMeta();
+  let filas = Array.from(g.values()).map(x => {
+    const vd = x.u30 / 30;
+    const dias = vd > 0 ? x.hay / vd : null;
+    const diasCon = vd > 0 ? (x.hay + x.camino) / vd : null;
+    let estado = 'ok', txt = 'OK';
+    if (x.hay + x.camino <= 0) { estado = x.u30 > 0 ? 'quiebre' : 'sin'; txt = x.u30 > 0 ? 'QUIEBRE' : 'Sin stock'; }
+    else if (x.hay <= 0) { estado = 'quiebre'; txt = 'Sin stock · viene en camino'; }
+    else if (diasCon !== null && diasCon < 7) { estado = 'rojo'; txt = 'Menos de 7 días'; }
+    else if (dias !== null && dias < 7 && x.camino > 0) { estado = 'bajo'; txt = 'Justo hoy · llega el envío'; }
+    else if (diasCon !== null && diasCon < meta) { estado = 'bajo'; txt = 'Por debajo del objetivo'; }
+    else if (vd <= 0) { estado = 'muerto'; txt = 'Sin ventas 30d'; }
+    return { ...x, vd, dias, diasCon, meta, estado, estadoTxt: txt };
+  });
+  const q = ($('#termoQ')?.value || '').toLowerCase().trim();
+  const qd = q.replace(/\D/g, '');
+  const f = $('#termoFiltro') ? $('#termoFiltro').value : 'camino';
+  if (f === 'camino') filas = filas.filter(x => x.camino > 0);
+  if (f === 'rojo') filas = filas.filter(x => x.estado === 'rojo' || x.estado === 'quiebre');
+  if (f === 'bajo') filas = filas.filter(x => x.estado === 'rojo' || x.estado === 'quiebre' || x.estado === 'bajo');
+  if (q) filas = filas.filter(x => (x.producto || '').toLowerCase().includes(q) ||
+    x.skus.some(s => s.toLowerCase().includes(q)) || (qd.length >= 4 && String(x.mla).includes(qd)));
+  return filas.sort((a, b) => (b.camino > 0) - (a.camino > 0) ||
+    (a.diasCon === null ? 1e9 : a.diasCon) - (b.diasCon === null ? 1e9 : b.diasCon));
+}
+
+function barraTermo(x) {
+  const meta = x.meta;
+  let pHay, pCam;
+  if (x.vd > 0) {
+    pHay = Math.max(0, Math.min(100, (x.dias / meta) * 100));
+    pCam = Math.max(0, Math.min(100 - pHay, ((x.diasCon - x.dias) / meta) * 100));
+  } else {
+    const tot = x.hay + x.camino;
+    pHay = tot > 0 ? (x.hay / tot) * 100 : 0;
+    pCam = tot > 0 ? (x.camino / tot) * 100 : 0;
+  }
+  const cls = x.vd <= 0 ? 'n' : x.estado === 'quiebre' || x.estado === 'rojo' || x.estado === 'sin' ? 'b' : x.estado === 'bajo' ? 'w' : '';
+  const txt = x.vd > 0
+    ? `${dec(x.dias, 0)} días${x.camino ? ' · con lo que viene ' + dec(x.diasCon, 0) : ''} (objetivo ${meta})`
+    : 'sin ventas en 30 días';
+  return `<div class="termo" title="${esc(txt)}">
+      <i class="hay ${cls}" style="width:${pHay.toFixed(1)}%"></i>
+      <i class="cam" style="left:${pHay.toFixed(1)}%;width:${pCam.toFixed(1)}%"></i>
+    </div><div class="termoTxt">${esc(txt)}</div>`;
+}
+
+function pintarTermo() {
+  if (!$('#tTermo')) return;
+  const filas = termoFilas();
+  const enT = ST.remitos.filter(r => r.estado === 'en_transito');
+  const uCamino = ST.pan.reduce((a, r) => a + (r.tr_full_u || 0) + (r.tr_pack_u || 0), 0);
+  const conCamino = filas.filter(x => x.camino > 0);
+  const esperando = filas.filter(x => x.hay <= 0 && x.camino > 0);
+  $('#kpisTermo').innerHTML = [
+    { c: '', l: 'Unidades en camino', v: num(uCamino), s: enT.length + ' envío' + (enT.length === 1 ? '' : 's') + ' sin confirmar' },
+    { c: 'full', l: 'Publicaciones con envío en camino', v: num(conCamino.length), s: 'de las que estás viendo' },
+    { c: 'bad', l: 'Sin stock, esperando el envío', v: num(esperando.length), s: 'hoy no tienen nada para vender' },
+    { c: 'warn', l: 'Por debajo del objetivo', v: num(filas.filter(x => x.estado === 'bajo' || x.estado === 'rojo').length), s: 'objetivo ' + termoMeta() + ' días' },
+  ].map(x => `<div class="kpi ${x.c}"><div class="lab">${x.l}</div><div class="val">${x.v}</div><div class="sub">${esc(x.s)}</div></div>`).join('');
+
+  $('#termoCnt').textContent = `${num(filas.length)} publicaciones`;
+  $('#tTermo thead').innerHTML = `<tr><th>Publicación</th><th>Producto</th><th class="num">Hay</th>
+    <th class="num">En camino</th><th class="num">Vta 30d</th><th style="min-width:190px">Termómetro</th><th>Estado</th></tr>`;
+  $('#tTermo tbody').innerHTML = filas.slice(0, 500).map(x => {
+    const tag = { ok: 'ok', bajo: 'warn', rojo: 'bad', quiebre: 'bad', sin: 'mut', muerto: 'info' }[x.estado] || 'mut';
+    const pub = x.mla
+      ? `<a href="https://articulo.mercadolibre.com.ar/MLA-${esc(x.mla)}" target="_blank" rel="noopener" class="mono">MLA${esc(x.mla)}</a>`
+      : '<span class="muted2">sin publicación</span>';
+    return `<tr class="cli" data-k="${esc(x.key)}">
+      <td>${pub}<div class="muted2 mono" style="font-size:11px">${esc(x.skus.slice(0, 3).join(' · '))}${x.skus.length > 3 ? ' +' + (x.skus.length - 3) : ''}</div></td>
+      <td title="${esc(x.producto)}">${esc((x.producto || '').slice(0, 44))}</td>
+      <td class="num"><b>${num(x.hay)}</b></td>
+      <td class="num" style="color:${x.camino ? 'var(--tr)' : 'var(--tx3)'}">${x.camino ? num(x.camino) : '—'}</td>
+      <td class="num">${num(x.u30)}</td>
+      <td>${barraTermo(x)}</td>
+      <td><span class="tag ${tag}">${x.estadoTxt}</span></td></tr>`;
+  }).join('') || `<tr><td colspan="7" class="muted" style="padding:26px;text-align:center">No hay publicaciones con mercadería en camino. Cambiá el filtro para ver todas.</td></tr>`;
+  if (filas.length > 500) $('#termoCnt').textContent += ' · mostrando 500';
+
+  const chip = $('#navTermo');
+  if (chip) {
+    if (uCamino) { chip.style.display = ''; chip.textContent = num(uCamino); } else chip.style.display = 'none';
+  }
+}
+
+/* Detalle: de que envio viene cada unidad */
+function detalleTermo(key) {
+  const tr = $$('#tTermo tbody tr.cli').find(t => t.dataset.k === key);
+  if (!tr) return;
+  const sig = tr.nextElementSibling;
+  const abierta = sig && sig.classList.contains('det');
+  $$('#tTermo tbody tr.det').forEach(t => t.remove());
+  if (abierta) return;
+  const x = termoFilas().find(f => f.key === key);
+  if (!x) return;
+  const filas = x.envios.slice().sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  const cuerpo = !filas.length
+    ? '<p class="muted" style="margin:0">Esta publicación no tiene mercadería en camino.</p>'
+    : `<table style="font-size:12px;width:100%"><thead><tr><th>Remito</th><th>Destino</th><th>Salió</th><th>SKU</th>
+        <th class="num">Unidades</th><th>Detalle</th><th></th></tr></thead><tbody>${filas.map(e => `<tr>
+        <td class="mono">${esc(e.remito)}</td>
+        <td><span class="tag ${e.destino === 'FULL' ? 'info' : 'warn'}">${DEPS[e.destino].corto}</span></td>
+        <td class="muted">${fechaCorta(e.fecha)} <span class="muted2">· hace ${Math.max(0, Math.round((Date.now() - new Date(e.fecha).getTime()) / 864e5))} d</span></td>
+        <td class="mono">${esc(e.sku)}</td>
+        <td class="num"><b>${num(e.u)}</b></td>
+        <td class="muted2">${esc(e.detalle)}</td>
+        <td class="num"><button class="btn sm pri" data-rec="${esc(e.remito)}">Ingresó</button></td></tr>`).join('')}</tbody></table>`;
+  tr.insertAdjacentHTML('afterend', `<tr class="det"><td colspan="7">${cuerpo}</td></tr>`);
+}
+
+function eventosV4() {
+  try {
+    const d = JSON.parse(lsGet('stockops_ped_dias') || 'null');
+    if (d && $('#pedDiasFull')) { $('#pedDiasFull').value = d.FULL; $('#pedDiasPack').value = d.PACK; }
+    const m = lsGet('stockops_termo_meta');
+    if (m && $('#termoMeta')) $('#termoMeta').value = m;
+  } catch (e) {}
+
+  ['#pedQ', '#pedDest', '#pedCamino', '#pedSoloVenta', '#pedSoloPropio', '#pedDiasFull', '#pedDiasPack']
+    .forEach(s => $(s)?.addEventListener('input', pintarPedido));
+  $('#btnPedCsv')?.addEventListener('click', () => bajarCsv('pedido-a-realizar.csv',
+    ['SKU', 'Producto', 'Destino', 'Vta 30d', 'Venta por dia', 'Hay', 'En camino', 'Dias hoy', 'Objetivo', 'A reponer', 'Mandar hoy', 'Comprar'],
+    pedFiltrado().map(x => [x.sku, x.producto, DEPS[x.deposito].nom, x.u30, x.vd.toFixed(2), x.hay, x.camino,
+      x.cob === null ? '' : Math.round(x.cob), x.objetivo, x.faltan, x.mandar, x.comprar])));
+  $('#btnPedEnvio')?.addEventListener('click', pedAEnvio);
+
+  ['#termoQ', '#termoDest', '#termoFiltro', '#termoMeta'].forEach(s => $(s)?.addEventListener('input', pintarTermo));
+  $('#btnTermoCsv')?.addEventListener('click', () => bajarCsv('termometros.csv',
+    ['Publicacion', 'SKU', 'Producto', 'Hay', 'En camino', 'Vta 30d', 'Dias hoy', 'Dias con lo que viene', 'Estado', 'Remitos en camino'],
+    termoFilas().map(x => [x.mla ? 'MLA' + x.mla : '', x.skus.join(' '), x.producto, x.hay, x.camino, x.u30,
+      x.dias === null ? '' : Math.round(x.dias), x.diasCon === null ? '' : Math.round(x.diasCon), x.estadoTxt,
+      Array.from(new Set(x.envios.map(e => e.remito))).join(' ')])));
+  $('#tTermo')?.addEventListener('click', e => {
+    if (e.target.dataset.rec) { e.stopPropagation(); return recibirRemito(e.target.dataset.rec, false); }
+    if (e.target.tagName === 'A') return;
+    const tr = e.target.closest('tr.cli');
+    if (tr) detalleTermo(tr.dataset.k);
+  });
 }
 </script>
 </body>
